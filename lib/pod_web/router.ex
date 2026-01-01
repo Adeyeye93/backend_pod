@@ -9,6 +9,32 @@ defmodule PodWeb.Router do
     pipe_through :api
   end
 
+  pipeline :jwt_authenticated do
+    plug :accepts, ["json"]
+    plug Guardian.Plug.Pipeline,
+      module: Pod.Guardian,
+      error_handler: PodWeb.AuthErrorHandler
+    plug Guardian.Plug.VerifyHeader
+    plug Guardian.Plug.EnsureAuthenticated
+  end
+
+  scope "/api", PodWeb do
+    pipe_through :api
+
+    post "/auth/register", AuthController, :register
+    post "/auth/login", AuthController, :login
+    post "/auth/refresh", AuthController, :refresh
+    post "/auth/social/google", AuthController, :google_login
+    post "/auth/social/apple", AuthController, :apple_login
+  end
+
+  scope "/api", PodWeb do
+    pipe_through :jwt_authenticated
+
+    delete "/auth/logout", AuthController, :logout
+    # Add your protected routes here
+  end
+
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:pod, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put

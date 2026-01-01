@@ -4,7 +4,7 @@ import Config
 config :pod, Pod.Repo,
   username: "postgres",
   password: "postgres",
-  hostname: "db",
+  hostname: "localhost",
   database: "audio_stream_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
@@ -49,6 +49,8 @@ config :pod, PodWeb.Endpoint,
 # configured to run both http and https servers on
 # different ports.
 
+
+
 # Enable dev routes for dashboard and mailbox
 config :pod, dev_routes: true
 
@@ -64,3 +66,8 @@ config :phoenix, :plug_init_mode, :runtime
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+config :joken, default_signer: "secret"
+
+config :pod, Pod.Accounts.Guardian,
+  secret_key: "zz37CkQEsb8MsWaDAyI1p5QEh4pcMAF90LWZ88dtorrw8KfIlEk63WuVmJN3Ex4A"

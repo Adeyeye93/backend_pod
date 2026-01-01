@@ -29,6 +29,12 @@ config :pod, PodWeb.Endpoint,
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
+
+config :pod, Pod.Accounts.Guardian,
+  issuer: "pod",
+  ttl: {24, :hours},
+  allow_refresh: true
+
 config :pod, Pod.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configures Elixir's Logger
