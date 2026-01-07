@@ -23,4 +23,18 @@ defmodule Pod.AccountsFixtures do
 
     user
   end
+
+  @doc """
+  Generate a user_interest.
+  """
+  def user_interest_fixture(attrs \\ %{}) do
+    {:ok, user_interest} =
+      attrs
+      |> Enum.into(%{
+
+      })
+      |> Pod.Accounts.create_user_interest()
+
+    user_interest
+  end
 end

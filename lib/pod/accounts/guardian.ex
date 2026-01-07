@@ -24,8 +24,11 @@ defmodule Pod.Accounts.Guardian do
   end
 
   def generate_tokens(user) do
-    {:ok, access_token, _} = encode_and_sign(user, %{}, token_type: "access")
-    {:ok, refresh_token, _} = encode_and_sign(user, %{}, token_type: "refresh", ttl: {120, :days})
-    {:ok, access_token, refresh_token}
+    with {:ok, access_token, _} <- encode_and_sign(user, %{}, token_type: "access"),
+         {:ok, refresh_token, _} <- encode_and_sign(user, %{}, token_type: "refresh", ttl: {120, :days}) do
+      {:ok, access_token, refresh_token}
+    else
+      {:error, reason} -> {:error, reason}
+    end
   end
 end

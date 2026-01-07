@@ -9,7 +9,13 @@ schema "users" do
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :avatar_url, :string
+    field :password_confirmation, :string, redact: true
     field :bio, :string
+    field :has_interest, :boolean, default: false
+    field :interests_selected_at, :naive_datetime
+
+    has_many :user_interests, Pod.Accounts.UserInterest
+    has_many :interests, through: [:user_interests, :interest]
     has_many :social_accounts, Pod.Accounts.SocialAccount
     timestamps()
   end
@@ -19,9 +25,15 @@ schema "users" do
   """
   def registration_changeset(user, attrs, opts \\ []) do
     user
-    |> cast(attrs, [:email, :username, :password, :avatar_url, :bio])
+    |> cast(attrs, [:email, :username, :password, :avatar_url, :bio, :password_confirmation, :has_interest, :interests_selected_at])
     |> validate_email(opts)
     |> password_changeset(attrs, opts)
+  end
+
+  def interest_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:has_interest, :interests_selected_at])
+    |> validate_required([:has_interest])
   end
 
    @doc """
@@ -104,6 +116,7 @@ schema "users" do
   defp validate_password(changeset, opts) do
     changeset
     |> validate_required([:password])
+    |> validate_confirmation(:password, message: "does not match password")
     |> validate_length(:password, min: 8, max: 72)
     |> maybe_hash_password(opts)
   end

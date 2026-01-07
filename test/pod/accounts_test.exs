@@ -68,4 +68,56 @@ defmodule Pod.AccountsTest do
       assert %Ecto.Changeset{} = Accounts.change_user(user)
     end
   end
+
+  describe "user_interests" do
+    alias Pod.Accounts.UserInterest
+
+    import Pod.AccountsFixtures
+
+    @invalid_attrs %{}
+
+    test "list_user_interests/0 returns all user_interests" do
+      user_interest = user_interest_fixture()
+      assert Accounts.list_user_interests() == [user_interest]
+    end
+
+    test "get_user_interest!/1 returns the user_interest with given id" do
+      user_interest = user_interest_fixture()
+      assert Accounts.get_user_interest!(user_interest.id) == user_interest
+    end
+
+    test "create_user_interest/1 with valid data creates a user_interest" do
+      valid_attrs = %{}
+
+      assert {:ok, %UserInterest{} = user_interest} = Accounts.create_user_interest(valid_attrs)
+    end
+
+    test "create_user_interest/1 with invalid data returns error changeset" do
+      assert {:error, %Ecto.Changeset{}} = Accounts.create_user_interest(@invalid_attrs)
+    end
+
+    test "update_user_interest/2 with valid data updates the user_interest" do
+      user_interest = user_interest_fixture()
+      update_attrs = %{}
+
+      assert {:ok, %UserInterest{} = user_interest} = Accounts.update_user_interest(user_interest, update_attrs)
+    end
+
+    test "update_user_interest/2 with invalid data returns error changeset" do
+      user_interest = user_interest_fixture()
+      assert {:error, %Ecto.Changeset{}} = Accounts.update_user_interest(user_interest, @invalid_attrs)
+      assert user_interest == Accounts.get_user_interest!(user_interest.id)
+    end
+
+    test "delete_user_interest/1 deletes the user_interest" do
+      user_interest = user_interest_fixture()
+      assert {:ok, %UserInterest{}} = Accounts.delete_user_interest(user_interest)
+      assert_raise Ecto.NoResultsError, fn -> Accounts.get_user_interest!(user_interest.id) end
+    end
+
+    test "change_user_interest/1 returns a user_interest changeset" do
+      user_interest = user_interest_fixture()
+      assert %Ecto.Changeset{} = Accounts.change_user_interest(user_interest)
+    end
+  end
 end

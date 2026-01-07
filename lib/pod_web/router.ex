@@ -10,13 +10,18 @@ defmodule PodWeb.Router do
   end
 
   pipeline :jwt_authenticated do
-    plug :accepts, ["json"]
-    plug Guardian.Plug.Pipeline,
-      module: Pod.Guardian,
-      error_handler: PodWeb.AuthErrorHandler
-    plug Guardian.Plug.VerifyHeader
-    plug Guardian.Plug.EnsureAuthenticated
-  end
+  plug :accepts, ["json"]
+
+  plug Guardian.Plug.Pipeline,
+    module: Pod.Accounts.Guardian,
+    error_handler: PodWeb.AuthErrorHandler
+
+  plug Guardian.Plug.VerifySession, claims: %{"typ" => "access"}
+  plug Guardian.Plug.VerifyHeader, claims: %{"typ" => "access"}
+  plug Guardian.Plug.EnsureAuthenticated
+  plug Guardian.Plug.LoadResource
+end
+
 
   scope "/api", PodWeb do
     pipe_through :api
@@ -32,6 +37,9 @@ defmodule PodWeb.Router do
     pipe_through :jwt_authenticated
 
     delete "/auth/logout", AuthController, :logout
+    get "/interests", InterestsController, :index
+    get "/users/:user_id/interests", InterestsController, :get_user_interests
+    post "/users/:user_id/interests/save", InterestsController, :save_user_interests
     # Add your protected routes here
   end
 

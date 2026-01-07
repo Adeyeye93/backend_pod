@@ -8,13 +8,14 @@ defmodule PodWeb.AuthController do
   def register(conn, %{"email" => email, "password" => password,  "password_confirmation" => password_confirmation}) do
     case Accounts.create_user(%{email: email, password: password, password_confirmation: password_confirmation}) do
       {:ok, user} ->
-        case Guardian.encode_and_sign(user) do
-          {:ok, token, _claims} ->
+        case Guardian.generate_tokens(user) do
+          {:ok, access_token, refresh_token} ->
             conn
             |> put_status(:created)
             |> json(%{
               message: "User registered successfully",
-              token: token,
+              token: access_token,
+              refresh: refresh_token,
               user: %{id: user.id, email: user.email}
             })
 
@@ -34,13 +35,14 @@ defmodule PodWeb.AuthController do
   def login(conn, %{"email" => email, "password" => password}) do
     case Accounts.authenticate_user(email, password) do
       {:ok, user} ->
-        case Guardian.encode_and_sign(user) do
-          {:ok, token, _claims} ->
+        case Guardian.generate_tokens(user) do
+          {:ok, access_token, refresh_token} ->
             conn
             |> put_status(:ok)
             |> json(%{
               message: "Login successful",
-              token: token,
+              token: access_token,
+              refresh: refresh_token,
               user: %{id: user.id, email: user.email}
             })
 
