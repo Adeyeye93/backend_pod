@@ -11,6 +11,7 @@
 # and so on) as they will fail if something goes wrong.
 alias Pod.Repo
 alias Pod.Interests.Interest
+alias Pod.Moods.Mood
 
 interests = [
   %{name: "Technology", description: "Tech podcasts"},
@@ -40,9 +41,34 @@ interests = [
   %{name: "Investing", description: "Finance & investing"}
 ]
 
+ moods = [
+      %{name: "Focus", description: "Deep work & concentration"},
+      %{name: "Chill", description: "Relaxing & unwinding"},
+      %{name: "Workout", description: "Energy & motivation"},
+      %{name: "Party", description: "High energy & fun"},
+      %{name: "Sleep", description: "Calming & sleep aids",},
+      %{name: "Learn", description: "Educational & growth",},
+      %{name: "Commute", description: "Quick listens",},
+      %{name: "Cooking", description: "Podcast while cooking",},
+      %{name: "Laugh", description: "Comedy & humor",},
+      %{name: "Inspire", description: "Motivation & mindfulness",},
+      %{name: "Thriller", description: "Suspense & mystery",},
+      %{name: "Storytelling", description: "Narratives & fiction",},
+      %{name: "Drama", description: "Emotional & engaging",},
+      %{name: "Trending", description: "What's hot now",},
+      %{name: "Hidden Gems", description: "Underrated podcasts",}
+    ]
+
 Enum.each(interests, fn interest ->
   Repo.insert!(%Interest{
     name: interest.name,
     description: interest.description
+  })
+end)
+
+Enum.each(moods, fn mood ->
+  Repo.insert!(%Mood{
+    name: mood.name,
+    description: mood.description
   })
 end)
