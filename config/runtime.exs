@@ -116,4 +116,8 @@ if config_env() == :prod do
   #     config :swoosh, :api_client, Swoosh.ApiClient.Req
   #
   # See https://hexdocs.pm/swoosh/Swoosh.html#module-installation for details.
+
+   config :pod, Pod.Accounts.Guardian,
+    issuer: "pod",
+    secret_key: System.get_env("GUARDIAN_SECRET_KEY")
 end
