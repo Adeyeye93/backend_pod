@@ -8,6 +8,7 @@ defmodule Pod.Repo.Migrations.CreateUsers do
       add :password, :string
       add :avatar_url, :string
       add :bio, :text
+      add :am_a_creator, :boolean
 
       timestamps(type: :utc_datetime)
     end

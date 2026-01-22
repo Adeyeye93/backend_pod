@@ -5,8 +5,16 @@ defmodule PodWeb.AuthController do
 
   action_fallback PodWeb.FallbackController
 
-  def register(conn, %{"email" => email, "password" => password,  "password_confirmation" => password_confirmation}) do
-    case Accounts.create_user(%{email: email, password: password, password_confirmation: password_confirmation}) do
+  def register(conn, %{
+        "email" => email,
+        "password" => password,
+        "password_confirmation" => password_confirmation
+      }) do
+    case Accounts.create_user(%{
+           email: email,
+           password: password,
+           password_confirmation: password_confirmation
+         }) do
       {:ok, user} ->
         case Guardian.generate_tokens(user) do
           {:ok, access_token, refresh_token} ->
@@ -90,17 +98,17 @@ defmodule PodWeb.AuthController do
     end
   end
 
-def logout(conn, _params) do
+  def logout(conn, _params) do
     conn
     |> json(%{message: "Logged out successfully"})
   end
 
   def google_login(conn, %{
-    "id_token" => id_token,
-    "email" => email,
-    "name" => name,
-    "picture" => picture
-  }) do
+        "id_token" => id_token,
+        "email" => email,
+        "name" => name,
+        "picture" => picture
+      }) do
     case verify_google_token(id_token) do
       {:ok, _claims} ->
         provider_data = %{
@@ -138,10 +146,10 @@ def logout(conn, _params) do
   end
 
   def apple_login(conn, %{
-    "id_token" => id_token,
-    "email" => email,
-    "name" => name
-  }) do
+        "id_token" => id_token,
+        "email" => email,
+        "name" => name
+      }) do
     case verify_apple_token(id_token) do
       {:ok, _claims} ->
         provider_data = %{
@@ -231,7 +239,9 @@ def logout(conn, _params) do
   defp decode_jwt(token) do
     case String.split(token, ".") do
       [_header, payload, _signature] ->
-        case Base.url_decode64(payload <> String.duplicate("=", rem(4 - rem(byte_size(payload), 4), 4))) do
+        case Base.url_decode64(
+               payload <> String.duplicate("=", rem(4 - rem(byte_size(payload), 4), 4))
+             ) do
           {:ok, decoded} ->
             case Jason.decode(decoded) do
               {:ok, claims} -> {:ok, claims}

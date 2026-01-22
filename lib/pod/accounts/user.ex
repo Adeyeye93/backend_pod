@@ -13,10 +13,19 @@ schema "users" do
     field :bio, :string
     field :has_interest, :boolean, default: false
     field :interests_selected_at, :naive_datetime
+    field :am_a_creator, :boolean, default: false
 
+
+    # Relationships
     has_many :user_interests, Pod.Accounts.UserInterest
     has_many :interests, through: [:user_interests, :interest]
     has_many :social_accounts, Pod.Accounts.SocialAccount
+
+    # Podcast relationships - NEW
+    has_one :creator, Pod.Stream.Creator, foreign_key: :user_id
+    has_many :sent_invites, Pod.Stream.GuestInvite, foreign_key: :host_creator_id
+    has_many :received_invites, Pod.Stream.GuestInvite, foreign_key: :guest_creator_id
+
     timestamps()
   end
 
@@ -25,7 +34,7 @@ schema "users" do
   """
   def registration_changeset(user, attrs, opts \\ []) do
     user
-    |> cast(attrs, [:email, :username, :password, :avatar_url, :bio, :password_confirmation, :has_interest, :interests_selected_at])
+    |> cast(attrs, [:email, :username, :password, :avatar_url, :bio, :password_confirmation, :has_interest, :interests_selected_at, :am_a_creator])
     |> validate_email(opts)
     |> password_changeset(attrs, opts)
   end

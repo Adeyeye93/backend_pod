@@ -41,6 +41,7 @@ end
     get "/users/:user_id/interests", InterestsController, :get_user_interests
     post "/users/:user_id/interests/save", InterestsController, :save_user_interests
     get "/get_mood", MoodController, :moodIndex
+    get "/set_am_a_creator/:user_id", UserActivityController, :set_am_a_creator
     # Add your protected routes here
   end
 
