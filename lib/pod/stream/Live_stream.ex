@@ -1,5 +1,5 @@
 defmodule Pod.Stream.LiveStream do
-  use Ecto.Schema
+  use Pod.Schema
   import Ecto.Changeset
 
   schema "live_streams" do

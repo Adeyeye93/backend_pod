@@ -1,5 +1,5 @@
 defmodule Pod.Accounts.UserInterest do
-  use Ecto.Schema
+  use Pod.Schema
   import Ecto.Changeset
 
   schema "user_interests" do

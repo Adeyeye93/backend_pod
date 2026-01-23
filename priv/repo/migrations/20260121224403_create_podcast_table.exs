@@ -7,12 +7,11 @@ defmodule Pod.Repo.Migrations.CreatePodcastTable do
       add :id, :binary_id, primary_key: true
       add :user_id, references(:users), null: false
       add :channel_id, :binary_id, null: false
-      add :name, :string, null: false
+      add :name, :string, null: true
       add :avatar, :string
       add :bio, :text
       add :follower_count, :integer, default: 0
       add :is_active, :boolean, default: true
-
       timestamps()
     end
 

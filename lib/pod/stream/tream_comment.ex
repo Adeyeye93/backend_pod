@@ -1,5 +1,5 @@
 defmodule Pod.Stream.StreamComment do
-  use Ecto.Schema
+  use Pod.Schema
   import Ecto.Changeset
 
   schema "stream_comments" do

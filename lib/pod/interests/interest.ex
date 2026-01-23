@@ -1,5 +1,5 @@
 defmodule Pod.Interests.Interest do
-  use Ecto.Schema
+  use Pod.Schema
   import Ecto.Changeset
 
   @derive {Jason.Encoder, only: [:id, :name, :description]}

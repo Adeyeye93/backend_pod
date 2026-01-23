@@ -1,9 +1,9 @@
 defmodule Pod.Accounts.User do
-  use Ecto.Schema
+  use Pod.Schema
   import Ecto.Changeset
   alias Argon2
 
-schema "users" do
+  schema "users" do
     field :email, :string
     field :username, :string
     field :password, :string, virtual: true, redact: true
@@ -14,7 +14,6 @@ schema "users" do
     field :has_interest, :boolean, default: false
     field :interests_selected_at, :naive_datetime
     field :am_a_creator, :boolean, default: false
-
 
     # Relationships
     has_many :user_interests, Pod.Accounts.UserInterest
@@ -34,7 +33,17 @@ schema "users" do
   """
   def registration_changeset(user, attrs, opts \\ []) do
     user
-    |> cast(attrs, [:email, :username, :password, :avatar_url, :bio, :password_confirmation, :has_interest, :interests_selected_at, :am_a_creator])
+    |> cast(attrs, [
+      :email,
+      :username,
+      :password,
+      :avatar_url,
+      :bio,
+      :password_confirmation,
+      :has_interest,
+      :interests_selected_at,
+      :am_a_creator
+    ])
     |> validate_email(opts)
     |> password_changeset(attrs, opts)
   end
@@ -45,7 +54,7 @@ schema "users" do
     |> validate_required([:has_interest])
   end
 
-   @doc """
+  @doc """
   A user changeset for authentication.
   """
   def auth_changeset(user, attrs) do
@@ -152,5 +161,4 @@ schema "users" do
       changeset
     end
   end
-
 end

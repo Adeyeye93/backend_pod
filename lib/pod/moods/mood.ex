@@ -1,5 +1,5 @@
 defmodule Pod.Moods.Mood do
-  use Ecto.Schema
+  use Pod.Schema
   import Ecto.Changeset
 
   schema "moods" do

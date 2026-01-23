@@ -1,14 +1,15 @@
 defmodule Pod.Stream.GuestInvite do
-
-   use Ecto.Schema
+  use Pod.Schema
   import Ecto.Changeset
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
   schema "guest_invites" do
-    field :status, :string, default: "pending" # pending, accepted, declined, cancelled
-    field :role, :string, default: "guest" # guest, co-host
+    # pending, accepted, declined, cancelled
+    field :status, :string, default: "pending"
+    # guest, co-host
+    field :role, :string, default: "guest"
     field :message, :string
 
     # Timestamps for tracking
@@ -31,11 +32,20 @@ defmodule Pod.Stream.GuestInvite do
   def changeset(invite, attrs) do
     invite
     |> cast(attrs, [
-      :live_stream_id, :host_creator_id, :guest_creator_id, :status,
-      :role, :message, :invite_sent_at, :scheduled_start_time
+      :live_stream_id,
+      :host_creator_id,
+      :guest_creator_id,
+      :status,
+      :role,
+      :message,
+      :invite_sent_at,
+      :scheduled_start_time
     ])
     |> validate_required([
-      :live_stream_id, :host_creator_id, :guest_creator_id, :scheduled_start_time
+      :live_stream_id,
+      :host_creator_id,
+      :guest_creator_id,
+      :scheduled_start_time
     ])
     |> validate_inclusion(:status, ["pending", "accepted", "declined", "cancelled"])
     |> validate_inclusion(:role, ["guest", "co-host"])
@@ -75,5 +85,4 @@ defmodule Pod.Stream.GuestInvite do
       _ -> false
     end
   end
-
 end
