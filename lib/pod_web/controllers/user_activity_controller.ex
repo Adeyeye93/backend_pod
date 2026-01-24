@@ -1,7 +1,6 @@
 defmodule PodWeb.UserActivityController do
   use PodWeb, :controller
   alias Pod.Accounts
-  alias Pod.Repo
 
   def set_am_a_creator(conn, %{"user_id" => user_id}) do
     current_user = Accounts.get_user!(user_id)

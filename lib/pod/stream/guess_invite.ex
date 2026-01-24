@@ -2,9 +2,6 @@ defmodule Pod.Stream.GuestInvite do
   use Pod.Schema
   import Ecto.Changeset
 
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
-
   schema "guest_invites" do
     # pending, accepted, declined, cancelled
     field :status, :string, default: "pending"
