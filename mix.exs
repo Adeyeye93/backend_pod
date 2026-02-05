@@ -61,7 +61,8 @@ defmodule Pod.MixProject do
       {:guardian, "~> 2.3"},
       {:argon2_elixir, "~> 2.0"},
       {:httpoison, "~> 2.0"},
-      {:joken, "~> 2.6"}
+      {:joken, "~> 2.6"},
+      {:uuid, "~> 1.1"}
     ]
   end
 

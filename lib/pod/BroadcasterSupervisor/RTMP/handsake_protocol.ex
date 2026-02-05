@@ -1,8 +1,10 @@
 defmodule Pod.BroadcasterSupervisor.RTMP.HandsakeProtocol do
   @rtmp_version 3
   @hs_size 1536
+  require Logger
 
   def handle(%{hs: :c0, buffer: <<@rtmp_version, rest::binary>>} = st) do
+    Logger.info("Received C0 (RTMP version)")
     s1 = s1()
     s0 = <<@rtmp_version>>
 
@@ -15,8 +17,8 @@ defmodule Pod.BroadcasterSupervisor.RTMP.HandsakeProtocol do
 
   def handle(%{hs: :c1, buffer: buffer} = st)
       when byte_size(buffer) >= @hs_size do
+    Logger.info("Received C1 (#{@hs_size} bytes)")
     <<c1::binary-size(@hs_size), rest::binary>> = buffer
-
     s2 = c1
 
     {
@@ -28,6 +30,7 @@ defmodule Pod.BroadcasterSupervisor.RTMP.HandsakeProtocol do
 
   def handle(%{hs: :c2, buffer: buffer} = st)
       when byte_size(buffer) >= @hs_size do
+    Logger.info("Received C2 (#{@hs_size} bytes)")
     <<_c2::binary-size(@hs_size), rest::binary>> = buffer
 
     {
@@ -36,7 +39,13 @@ defmodule Pod.BroadcasterSupervisor.RTMP.HandsakeProtocol do
     }
   end
 
-  def handle(st), do: {:more, st}
+  def handle(st) do
+    Logger.debug(
+      "Handshake waiting for more data. Current state: #{st.hs}, buffer: #{byte_size(st.buffer)} bytes"
+    )
+
+    {:more, st}
+  end
 
   defp s1 do
     time = System.system_time(:second)

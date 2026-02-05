@@ -12,6 +12,7 @@ defmodule Pod.Application do
       Pod.Repo,
       {DNSCluster, query: Application.get_env(:pod, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Pod.PubSub},
+      {Pod.RTMPServer, [port: 1935]},  
       # Start a worker by calling: Pod.Worker.start_link(arg)
       # {Pod.Worker, arg},
       # Start to serve requests, typically the last entry
