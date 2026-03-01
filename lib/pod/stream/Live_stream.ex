@@ -44,6 +44,8 @@ defmodule Pod.Stream.LiveStream do
     field :avg_watch_time, :string
     field :peak_viewers, :integer, default: 0
     field :engagement_rate, :float
+    field :segment_count, :integer, default: 0
+    field :archive_path, :string
 
     # belongs_to :creator, Pod.Stream.Creator, type: :binary_id
     has_many :guest_invites, Pod.Stream.GuestInvite, foreign_key: :live_stream_id
