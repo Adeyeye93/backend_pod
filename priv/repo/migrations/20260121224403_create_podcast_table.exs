@@ -49,6 +49,8 @@ defmodule Pod.Repo.Migrations.CreatePodcastTable do
       add :avg_watch_time, :string
       add :peak_viewers, :integer, default: 0
       add :engagement_rate, :float
+      add :segment_count, :integer, default: 0
+      add :archive_path, :string
 
       timestamps()
     end
