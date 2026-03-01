@@ -4,6 +4,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
   alias Pod.BroadcasterSupervisor.Ingest
   alias Pod.BroadcasterSupervisor.RTMP
   alias Pod.BroadcasterSupervisor.Handler.AudioFrame
+  alias Pod.BroadcasterSupervisor.Ingest.TranscoderPool
+  alias Pod.BroadcasterSupervisor.Ingest.Transcoder
 
   defstruct [
     :id,
@@ -28,7 +30,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
     stream_id: nil,
     received: 0,
     payload: <<>>,
-    aac_config: nil
+    aac_config: nil,
+    flush_timer: nil
   ]
 
   def start_link(opts) do
@@ -68,13 +71,12 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
     Logger.info("✓ State initialized for broadcaster: #{state.id}")
 
     if state.circuit.state == :open do
-      Logger.error("Circuit open dropping stream")
+      Logger.error("Circuit open, dropping stream")
       {:stop, :circuit_open, state}
+    else
+      send(self(), :start_reading)
+      {:ok, state}
     end
-
-    Logger.info("✓ About to send :start_reading message")
-    send(self(), :start_reading)
-    Logger.info("✓ :start_reading message sent")
 
     {:ok, state}
   end
@@ -113,6 +115,22 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
     end
   end
 
+  def handle_info(:flush_timeout, state) do
+    frames = Ingest.AudioBuffer.drain(state.audio_buffer)
+
+    if frames != [] and not is_nil(state.aac_config) do
+      case TranscoderPool.checkout() do
+        {:ok, worker} ->
+          Transcoder.transcode(worker, frames, state.aac_config, self())
+
+        :busy ->
+          Logger.warning("Flush timeout — transcoders busy, dropping #{length(frames)} frames")
+      end
+    end
+
+    {:noreply, %{state | flush_timer: schedule_flush()}}
+  end
+
   defp handle_handshake(buffer, state) do
     Logger.debug("Handshake step: #{state.hs}, buffer size: #{byte_size(buffer)}")
 
@@ -130,7 +148,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
 
       {:done, new_state} ->
         Logger.info("Handshake COMPLETE for #{state.id}")
-        %{new_state | state: :streaming}
+        timer = Process.send_after(self(), :flush_timeout, 3_000)
+        %{new_state | state: :streaming, flush_timer: timer}
 
       {:more, new_state} ->
         Logger.debug("Handshake needs more data")
@@ -155,4 +174,13 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
     :gen_tcp.send(socket, bin)
   end
 
+  defp schedule_flush do
+    Process.send_after(self(), :flush_timeout, 3_000)
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    if state.flush_timer, do: Process.cancel_timer(state.flush_timer)
+    :ok
+  end
 end

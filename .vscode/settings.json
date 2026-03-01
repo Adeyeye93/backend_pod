@@ -1,4 +1,13 @@
 {
   "elixirLS.fetchDeps": false,
-  "cSpell.words": ["clientid", "csid", "httpoison", "joken", "rtmp"]
+  "cSpell.words": [
+    "bitrates",
+    "checkin",
+    "clientid",
+    "csid",
+    "Handsake",
+    "httpoison",
+    "joken",
+    "rtmp"
+  ]
 }
