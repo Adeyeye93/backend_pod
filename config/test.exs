@@ -1,4 +1,5 @@
 import Config
+config :pod, Oban, testing: :manual
 
 # Configure your database
 #

@@ -270,4 +270,14 @@ defmodule Pod.Accounts do
   def change_user_interest(%UserInterest{} = user_interest, attrs \\ %{}) do
     UserInterest.changeset(user_interest, attrs)
   end
+
+  def get_user_by_creator(creator_id) do
+    query =
+      from u in User,
+        join: c in assoc(u, :creator),
+        where: c.id == ^creator_id,
+        select: u
+
+    Repo.one(query)
+  end
 end

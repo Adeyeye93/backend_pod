@@ -191,7 +191,7 @@ defmodule Pod.Podcast do
   end
 
   defp accepted_in_time?(invite) do
-    now = DateTime.utc_now()
+    # now = DateTime.utc_now()
     scheduled_time = invite.scheduled_start_time
     one_hour_before = DateTime.add(scheduled_time, -3600, :second)
 

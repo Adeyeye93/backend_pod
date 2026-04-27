@@ -49,8 +49,6 @@ config :pod, PodWeb.Endpoint,
 # configured to run both http and https servers on
 # different ports.
 
-
-
 # Enable dev routes for dashboard and mailbox
 config :pod, dev_routes: true
 

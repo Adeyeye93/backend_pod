@@ -28,7 +28,12 @@ defmodule Pod.BroadcasterSupervisor.Ingest.TranscoderPool do
     GenServer.call(__MODULE__, :checkout)
   end
 
-  @doc "Return a worker to the idle pool."
+  @doc "Register a newly started worker into the pool as idle."
+  def register(pid) do
+    GenServer.cast(__MODULE__, {:register, pid})
+  end
+
+  @doc "Return a worker to the idle pool after completing a job."
   def checkin(pid) do
     GenServer.cast(__MODULE__, {:checkin, pid})
   end
@@ -47,8 +52,9 @@ defmodule Pod.BroadcasterSupervisor.Ingest.TranscoderPool do
 
   @impl true
   def init(_opts) do
-    # Table is created by the supervisor before workers are started.
-    # We just keep a reference here for clarity.
+    # TranscoderPool owns the ETS table — create it here so it exists
+    # before any worker calls register/1 in their own init.
+    :ets.new(@table, [:set, :public, :named_table])
     {:ok, %{}}
   end
 
@@ -62,6 +68,15 @@ defmodule Pod.BroadcasterSupervisor.Ingest.TranscoderPool do
       [] ->
         {:reply, :busy, state}
     end
+  end
+
+  @impl true
+  def handle_cast({:register, pid}, state) do
+    # Fresh worker joining the pool for the first time (or after a restart).
+    # Insert unconditionally — no prior entry needed.
+    :ets.insert(@table, {pid, :idle})
+    Logger.debug("[TranscoderPool] Worker registered: #{inspect(pid)}")
+    {:noreply, state}
   end
 
   @impl true

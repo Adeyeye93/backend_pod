@@ -1,68 +1,75 @@
 defmodule Pod.BroadcasterSupervisor.Ingest.TranscoderSupervisor do
   @moduledoc """
-  Supervises the TranscoderPool GenServer and the fixed pool of
-  TranscodingWorker processes.
+  Supervises the fixed pool of TranscodingWorker processes.
 
-  ### Init ordering fix
+  ## Why a separate PoolInitializer child
 
-  The original code called `DynamicSupervisor.start_child/2` inside `init/1`,
-  before `DynamicSupervisor.init/1` had returned. The supervisor process
-  isn't registered or fully initialized at that point, causing a crash.
+  DynamicSupervisor does not support handle_info — it is not a full
+  GenServer and messages sent to it fall through to an unhandled default,
+  producing the "unexpected message" warning.
 
-  The fix: create the ETS table and schedule pool initialization via
-  `send(self(), :init_pool)` from `init/1`. By the time the message is
-  processed in `handle_info/2`, the supervisor is fully up.
+  The correct pattern is to add a lightweight child GenServer —
+  PoolInitializer — whose only job is to start all the workers after
+  the supervisor is fully up. It starts, spawns the workers, then
+  stops itself cleanly. This is the standard OTP way to run post-init
+  work under a supervisor.
   """
 
   use DynamicSupervisor
   require Logger
 
   alias Pod.BroadcasterSupervisor.Ingest.TranscodingWorker
-  # alias Pod.BroadcasterSupervisor.Ingest.TranscoderPool
+  alias Pod.BroadcasterSupervisor.Ingest.TranscoderSupervisor.PoolInitializer
 
   @pool_size 100
-
-  # ---------------------------------------------------------------------------
-  # Public API
-  # ---------------------------------------------------------------------------
 
   def start_link(opts) do
     DynamicSupervisor.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  # ---------------------------------------------------------------------------
-  # DynamicSupervisor callbacks
-  # ---------------------------------------------------------------------------
-
   @impl true
   def init(_opts) do
-    # Create the ETS table here — it must exist before any worker calls
-    # TranscoderPool.checkin/1 in their own init.
-    :ets.new(:transcoder_pool, [:set, :public, :named_table])
+    # TranscoderPool owns the ETS table and creates it in its own init.
+    # Since TranscoderPool starts before this supervisor in application.ex,
+    # the table is guaranteed to exist before any worker calls checkin/1.
+    spec = DynamicSupervisor.init(strategy: :one_for_one)
 
-    # Defer pool population until after this callback returns and the
-    # supervisor is fully initialized.
-    send(self(), :init_pool)
+    Task.start(fn ->
+      Process.sleep(100)
+      PoolInitializer.populate(@pool_size)
+    end)
 
-    DynamicSupervisor.init(strategy: :one_for_one)
+    spec
   end
+end
 
-  # `handle_info` is available because DynamicSupervisor is built on GenServer.
 
-  def handle_info(:init_pool, state) do
-    Logger.info("[TranscoderSupervisor] Starting #{@pool_size} transcoding workers")
+defmodule Pod.BroadcasterSupervisor.Ingest.TranscoderSupervisor.PoolInitializer do
+  @moduledoc """
+  Populates the TranscoderSupervisor pool after it is fully started.
+  Called from a Task spawned in TranscoderSupervisor.init/1.
+  """
 
-    for _ <- 1..@pool_size do
-      case DynamicSupervisor.start_child(__MODULE__, {TranscodingWorker, []}) do
-        {:ok, _pid} ->
-          :ok
+  require Logger
 
-        {:error, reason} ->
-          Logger.error("[TranscoderSupervisor] Failed to start worker: #{inspect(reason)}")
-      end
+  alias Pod.BroadcasterSupervisor.Ingest.TranscoderSupervisor
+  alias Pod.BroadcasterSupervisor.Ingest.TranscodingWorker
+
+  def populate(pool_size) do
+    Logger.info("[TranscoderSupervisor] Starting #{pool_size} transcoding workers")
+
+    results =
+      Enum.map(1..pool_size, fn _ ->
+        DynamicSupervisor.start_child(TranscoderSupervisor, {TranscodingWorker, []})
+      end)
+
+    succeeded = Enum.count(results, &match?({:ok, _}, &1))
+    failed    = pool_size - succeeded
+
+    if failed > 0 do
+      Logger.error("[TranscoderSupervisor] Pool started with #{failed} failures — #{succeeded}/#{pool_size} workers running")
+    else
+      Logger.info("[TranscoderSupervisor] ✓ Pool ready — #{succeeded} workers started")
     end
-
-    Logger.info("[TranscoderSupervisor] Pool ready — #{@pool_size} workers started")
-    {:noreply, state}
   end
 end

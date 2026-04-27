@@ -75,8 +75,9 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Transcoder do
   @impl true
   def init(:idle) do
     # Register into the pool on every start/restart.
-    # This means a crashed and restarted worker automatically becomes available.
-    TranscoderPool.checkin(self())
+    # Uses register/1 (not checkin/1) — register inserts fresh PIDs
+    # unconditionally, checkin only updates existing entries.
+    TranscoderPool.register(self())
     {:ok, :idle}
   end
 
@@ -180,70 +181,50 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Transcoder do
   end
 
   defp run_ffmpeg(adts_binary, kbps) do
-    port =
-      Port.open(
-        {:spawn_executable, ffmpeg_bin()},
-        [
-          :binary,
-          :exit_status,
-          args: ffmpeg_args(kbps)
-        ]
-      )
+    tmp_path =
+      System.tmp_dir!()
+      |> Path.join("pod_#{kbps}_#{:erlang.unique_integer([:positive])}.aac")
 
-    # Send the full ADTS binary into FFmpeg's stdin.
-    Port.command(port, adts_binary)
+    out_path =
+      System.tmp_dir!()
+      |> Path.join("pod_#{kbps}_#{:erlang.unique_integer([:positive])}_out.aac")
 
-    # Closing stdin signals EOF to FFmpeg — without this FFmpeg will block
-    # forever on pipe:0 waiting for more input and never produce output.
-    send(port, {self(), :close})
+    try do
+      File.write!(tmp_path, adts_binary)
 
-    collect_output(port, <<>>)
+      # Write to an output file instead of pipe:1 — avoids System.cmd stdout
+      # mixing with stderr when stderr_to_stdout: true is needed to prevent
+      # the stderr pipe buffer from filling and blocking FFmpeg.
+      args = ffmpeg_args(kbps, tmp_path, out_path)
+
+      case System.cmd(ffmpeg_bin(), args, stderr_to_stdout: true) do
+        {_stderr, 0} ->
+          case File.read(out_path) do
+            {:ok, data} -> {:ok, data}
+            {:error, reason} -> {:error, {:output_read_failed, reason}}
+          end
+
+        {stderr_output, status} ->
+          Logger.error("[Transcoder] FFmpeg #{kbps}k failed (#{status}): #{stderr_output}")
+          {:error, {:ffmpeg_exit, status}}
+      end
+    after
+      File.rm(tmp_path)
+      File.rm(out_path)
+    end
   end
 
-  defp ffmpeg_args(kbps) do
+  defp ffmpeg_args(kbps, input_path, output_path) do
     [
-      # Suppress banner/info — we only want the audio output on stdout
       "-hide_banner",
       "-loglevel", "error",
-
-      # Input: ADTS-framed AAC from stdin.
-      # FFmpeg reads profile, sample rate, and channel count from the ADTS
-      # headers we built — no need to specify them as flags.
-      "-f", "adts",
-      "-i", "pipe:0",
-
-      # Re-encode to AAC at the target bitrate.
-      # We re-encode rather than stream-copy because:
-      #   1. The bitrate needs to change per output
-      #   2. HLS clients expect consistent CBR segments for adaptive switching
+      "-f", "aac",
+      "-i", input_path,
       "-c:a", "aac",
       "-b:a", "#{kbps}k",
-
-      # Output: ADTS-wrapped AAC to stdout.
-      # ADTS supports exactly one stream — valid for HLS .aac segments.
       "-f", "adts",
-      "pipe:1"
+      output_path    # write to file, not pipe:1
     ]
-  end
-
-  defp collect_output(port, acc) do
-    receive do
-      {^port, {:data, chunk}} ->
-        collect_output(port, acc <> chunk)
-
-      {^port, {:exit_status, 0}} ->
-        {:ok, acc}
-
-      {^port, {:exit_status, status}} ->
-        {:error, {:ffmpeg_exit, status}}
-
-    after
-      # 5 seconds is generous for 2-3 frames of audio.
-      # If FFmpeg hasn't finished by then it has hung or received bad input.
-      5_000 ->
-        Port.close(port)
-        {:error, :timeout}
-    end
   end
 
   defp ffmpeg_bin do

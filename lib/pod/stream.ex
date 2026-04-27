@@ -13,6 +13,8 @@ defmodule Pod.Stream do
   import Ecto.Query
   alias Pod.Repo
   alias Pod.Stream.LiveStream
+  alias Pod.BroadcasterSupervisor.Worker.StreamStartWorker
+  alias Pod.BroadcasterSupervisor.Worker.StreamReminderWorker
 
   # ---------------------------------------------------------------------------
   # Stream key authentication
@@ -48,9 +50,9 @@ defmodule Pod.Stream do
   @doc """
   Creates a new scheduled live stream for a creator.
 
-  Automatically generates a unique stream key and constructs the RTMP URL.
-  The stream key is what the broadcaster puts into OBS or their client to
-  authenticate when they connect.
+  Automatically generates a unique stream key, constructs the RTMP URL,
+  and calculates the invite_deadline as scheduled_start_time - 1 hour.
+  If the stream is within 1 hour, invite_deadline is left nil which blocks invites.
   """
   def schedule_stream(attrs) do
     stream_key = generate_stream_key()
@@ -59,6 +61,7 @@ defmodule Pod.Stream do
     attrs
     |> Map.put("stream_key", stream_key)
     |> Map.put("rtmp_url", rtmp_url)
+    |> maybe_add_invite_deadline()
     |> then(&LiveStream.changeset(%LiveStream{}, &1))
     |> Repo.insert()
   end
@@ -176,6 +179,31 @@ defmodule Pod.Stream do
   end
 
   # ---------------------------------------------------------------------------
+  # Updating streams
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Updates a live stream. Enforces locked fields once the stream is live or ended.
+  Locked: scheduled_start_time, age_restriction, record_stream.
+  Editable always: title, description, category, tags, is_private, allow_comments.
+  """
+  def update_live_stream(%LiveStream{status: status} = stream, attrs)
+      when status in ["live", "ended"] do
+    locked = ["scheduled_start_time", "age_restriction", "record_stream"]
+    safe_attrs = Map.drop(attrs, locked ++ Enum.map(locked, &String.to_atom/1))
+
+    stream
+    |> LiveStream.changeset(safe_attrs)
+    |> Repo.update()
+  end
+
+  def update_live_stream(%LiveStream{} = stream, attrs) do
+    stream
+    |> LiveStream.changeset(attrs)
+    |> Repo.update()
+  end
+
+  # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
 
@@ -191,4 +219,63 @@ defmodule Pod.Stream do
     base = Application.get_env(:pod, :rtmp_base_url, "rtmp://localhost:1935/live")
     "#{base}/#{stream_key}"
   end
+
+  defp maybe_add_invite_deadline(%{"scheduled_start_time" => scheduled_time} = attrs)
+       when not is_nil(scheduled_time) do
+    parsed_time =
+      case scheduled_time do
+        %DateTime{} = dt -> dt
+        str -> elem(DateTime.from_iso8601(str), 1)
+      end
+
+    one_hour_from_now = DateTime.add(DateTime.utc_now(), 3600, :second)
+
+    if DateTime.compare(parsed_time, one_hour_from_now) == :gt do
+      deadline = DateTime.add(parsed_time, -3600, :second) |> DateTime.truncate(:second)
+      Map.put(attrs, "invite_deadline", deadline)
+    else
+      attrs
+    end
+  end
+
+  defp maybe_add_invite_deadline(attrs), do: attrs
+
+
+  def schedule_stream_jobs(%{scheduled_start_time: start_time, id: stream_id} = _stream) do
+  now        = DateTime.utc_now()
+  total_secs = DateTime.diff(start_time, now)
+
+  # Don't schedule if start time is already in the past
+  if total_secs <= 0, do: :ok
+
+  base_jobs = [
+    {StreamStartWorker,    %{stream_id: stream_id},                    start_time},
+    {StreamReminderWorker, %{stream_id: stream_id, threshold: "5_sec"},  at_minus(start_time, 5)},
+    {StreamReminderWorker, %{stream_id: stream_id, threshold: "2_min"},  at_minus(start_time, 120)},
+    {StreamReminderWorker, %{stream_id: stream_id, threshold: "5_min"},  at_minus(start_time, 300)},
+    {StreamReminderWorker, %{stream_id: stream_id, threshold: "10_min"}, at_minus(start_time, 600)},
+  ]
+
+  ninety_percent_job =
+    if total_secs > 600 do
+      fire_at = at_minus(start_time, round(total_secs * 0.1))
+      [{StreamReminderWorker, %{stream_id: stream_id, threshold: "90_percent"}, fire_at}]
+    else
+      []
+    end
+
+  (base_jobs ++ ninety_percent_job)
+  |> Enum.filter(fn {_, _, run_at} -> DateTime.after?(run_at, now) end)
+  |> Enum.each(fn {worker, args, run_at} ->
+    args
+    |> worker.new(scheduled_at: run_at, queue: :streams)
+    |> Oban.insert!()
+  end)
+
+  :ok
+end
+
+defp at_minus(datetime, seconds) do
+  DateTime.add(datetime, -seconds, :second)
+end
 end

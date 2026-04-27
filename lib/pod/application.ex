@@ -12,7 +12,22 @@ defmodule Pod.Application do
       Pod.Repo,
       {DNSCluster, query: Application.get_env(:pod, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Pod.PubSub},
-      {Pod.RTMPServer, [port: 1935]},  
+      # Registry for looking up Segmenter from Season by session_id
+      {Registry, keys: :unique, name: Pod.SessionRegistry},
+      {Oban, Application.fetch_env!(:pod, Oban)},
+
+      # TranscoderPool must start before TranscoderSupervisor —
+      # workers call TranscoderPool.checkin/1 in their own init
+      Pod.BroadcasterSupervisor.Ingest.TranscoderPool,
+
+      # Transcoder worker pool
+      Pod.BroadcasterSupervisor.Ingest.TranscoderSupervisor,
+
+      # Top-level broadcaster supervisor — starts one Session per RTMP connection
+      Pod.BroadcasterSupervisor,
+
+      # RTMP server — listens on port 1935
+      {Pod.RTMPServer, port: 1935},
       # Start a worker by calling: Pod.Worker.start_link(arg)
       # {Pod.Worker, arg},
       # Start to serve requests, typically the last entry

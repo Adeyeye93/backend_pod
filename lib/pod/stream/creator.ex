@@ -12,6 +12,7 @@ defmodule Pod.Stream.Creator do
     field :bio, :string
     field :follower_count, :integer, default: 0
     field :is_active, :boolean, default: true
+    field :invite_key, :string
 
     # User relationship - UPDATED
     belongs_to :user, Pod.Accounts.User, type: :binary_id
@@ -26,11 +27,12 @@ defmodule Pod.Stream.Creator do
 
   def changeset(creator, attrs) do
     creator
-    |> cast(attrs, [:user_id, :name, :avatar, :bio, :follower_count, :is_active])
+    |> cast(attrs, [:user_id, :name, :avatar, :bio, :follower_count, :is_active, :invite_key])
     |> put_channel_id()
-    |> validate_required([:user_id, :channel_id])
+    |> validate_required([:user_id, :channel_id, :invite_key])
     |> unique_constraint(:user_id)
     |> unique_constraint(:channel_id)
+    |> unique_constraint(:invite_key)
     |> assoc_constraint(:user)
   end
 
@@ -38,11 +40,12 @@ defmodule Pod.Stream.Creator do
     put_change(cs, :channel_id, Ecto.UUID.generate())
   end
 
+
   defp put_channel_id(cs), do: cs
 
   def update_changeset(creator, attrs) do
     creator
-    |> cast(attrs, [:name, :avatar, :bio, :follower_count, :is_active])
+    |> cast(attrs, [:name, :avatar, :bio, :follower_count, :is_active, :invite_key])
     |> validate_required([:name])
   end
 end

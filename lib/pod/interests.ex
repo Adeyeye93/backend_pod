@@ -108,18 +108,17 @@ defmodule Pod.Interests do
 
   # Add interests to user
 def update_user_interests(user_id, interest_ids) when is_list(interest_ids) do
-  user_id = String.to_integer(user_id)
   now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-  date_Time = DateTime.utc_now() |> DateTime.truncate(:second)
+  date_time = DateTime.utc_now() |> DateTime.truncate(:second)
 
   Repo.transaction(fn ->
-    # 1. Remove interests that are no longer selected
+    # Remove interests not selected
     from(ui in UserInterest,
       where: ui.user_id == ^user_id and ui.interest_id not in ^interest_ids
     )
     |> Repo.delete_all()
 
-    # 2. Insert missing interests
+    # Insert missing interests
     existing_ids =
       from(ui in UserInterest,
         where: ui.user_id == ^user_id,
@@ -134,8 +133,8 @@ def update_user_interests(user_id, interest_ids) when is_list(interest_ids) do
         %{
           user_id: user_id,
           interest_id: interest_id,
-          inserted_at: date_Time,
-          updated_at: date_Time
+          inserted_at: date_time,
+          updated_at: date_time
         }
       end)
 
@@ -143,7 +142,7 @@ def update_user_interests(user_id, interest_ids) when is_list(interest_ids) do
       Repo.insert_all(UserInterest, entries)
     end
 
-    # 3. Update user metadata
+    # Update user metadata
     user = Repo.get!(User, user_id)
 
     user
@@ -156,7 +155,6 @@ def update_user_interests(user_id, interest_ids) when is_list(interest_ids) do
     %{added: length(new_ids), total: length(interest_ids)}
   end)
 end
-
 
 
 

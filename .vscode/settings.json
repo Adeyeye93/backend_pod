@@ -5,9 +5,15 @@
     "checkin",
     "clientid",
     "csid",
+    "ENDLIST",
+    "EXTINF",
+    "EXTM",
+    "finalise",
     "Handsake",
     "httpoison",
     "joken",
-    "rtmp"
+    "mpegurl",
+    "rtmp",
+    "TARGETDURATION"
   ]
 }

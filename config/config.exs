@@ -35,12 +35,30 @@ config :pod, Pod.Accounts.Guardian,
   ttl: {24, :hours},
   allow_refresh: true
 
+config :ex_aws,
+  # change to your actual AWS region when you create the bucket
+  region: "us-east-1"
+
+config :pod, :storage,
+  adapter: :local,
+  local_path: "priv/segments"
+
 config :pod, Pod.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configures Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
+
+config :pod, Oban,
+  repo: Pod.Repo,
+  plugins: [
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
+  ],
+  queues: [
+    streams: 20,
+    default: 10
+  ]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason

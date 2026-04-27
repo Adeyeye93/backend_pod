@@ -6,7 +6,6 @@ defmodule Pod.Stream.LiveStream do
     field :title, :string
     field :description, :string
     field :category, :string
-    field :creator_id, :binary_id
     field :channel_id, :binary_id
     # scheduled, live, ended
     field :status, :string, default: "scheduled"
@@ -37,6 +36,7 @@ defmodule Pod.Stream.LiveStream do
     field :scheduled_start_time, :utc_datetime
     field :actual_start_time, :utc_datetime
     field :end_time, :utc_datetime
+    field :invite_deadline, :utc_datetime
 
     # Stream stats
     field :viewer_count, :integer, default: 0
@@ -46,8 +46,9 @@ defmodule Pod.Stream.LiveStream do
     field :engagement_rate, :float
     field :segment_count, :integer, default: 0
     field :archive_path, :string
+    field :duration_seconds, :integer, default: 0
 
-    # belongs_to :creator, Pod.Stream.Creator, type: :binary_id
+    belongs_to :creator, Pod.Stream.Creator, type: :binary_id
     has_many :guest_invites, Pod.Stream.GuestInvite, foreign_key: :live_stream_id
     has_many :guests, through: [:guest_invites, :guest_creator]
     has_many :comments, Pod.Stream.StreamComment, foreign_key: :live_stream_id
@@ -81,11 +82,15 @@ defmodule Pod.Stream.LiveStream do
       :scheduled_start_time,
       :actual_start_time,
       :end_time,
+      :invite_deadline,
       :viewer_count,
       :total_viewers,
       :avg_watch_time,
       :peak_viewers,
-      :engagement_rate
+      :engagement_rate,
+      :segment_count,
+      :archive_path,
+      :duration_seconds
     ])
     |> validate_required([:title, :category, :creator_id, :channel_id, :scheduled_start_time])
     |> validate_inclusion(:status, ["scheduled", "live", "ended"])
@@ -106,7 +111,10 @@ defmodule Pod.Stream.LiveStream do
       :total_viewers,
       :peak_viewers,
       :avg_watch_time,
-      :engagement_rate
+      :engagement_rate,
+      :segment_count,
+      :archive_path,
+      :duration_seconds
     ])
     |> validate_inclusion(:status, ["ended"])
   end

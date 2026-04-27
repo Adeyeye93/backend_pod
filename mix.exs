@@ -12,11 +12,11 @@ defmodule Pod.MixProject do
       deps: deps(),
       listeners: [Phoenix.CodeReloader],
       releases: [
-      pod: [
-        include_executables_for: [:unix],
-        applications: [runtime_tools: :permanent]
+        pod: [
+          include_executables_for: [:unix],
+          applications: [runtime_tools: :permanent]
+        ]
       ]
-    ]
     ]
   end
 
@@ -62,7 +62,11 @@ defmodule Pod.MixProject do
       {:argon2_elixir, "~> 2.0"},
       {:httpoison, "~> 2.0"},
       {:joken, "~> 2.6"},
-      {:uuid, "~> 1.1"}
+      {:uuid, "~> 1.1"},
+      {:ex_aws, "~> 2.6"},
+      {:ex_aws_s3, "~> 2.5"},
+      {:oban, "~> 2.19"},
+      {:igniter, "~> 0.5", only: [:dev]}
     ]
   end
 

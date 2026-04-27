@@ -55,27 +55,47 @@ defmodule Pod.Stream.GuestInvite do
 
   def accept_changeset(invite, _attrs) do
     invite
-    |> cast(%{status: "accepted", accepted_at: DateTime.utc_now()}, [:status, :accepted_at])
+    |> cast(
+      %{
+        status: "accepted",
+        accepted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      },
+      [:status, :accepted_at]
+    )
   end
 
   def decline_changeset(invite, _attrs) do
     invite
-    |> cast(%{status: "declined", declined_at: DateTime.utc_now()}, [:status, :declined_at])
+    |> cast(
+      %{
+        status: "declined",
+        declined_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      },
+      [:status, :declined_at]
+    )
   end
 
   defp set_invite_sent_at(changeset) do
-    if get_field(changeset, :invite_sent_at) do
-      changeset
-    else
-      put_change(changeset, :invite_sent_at, DateTime.utc_now())
+    case get_field(changeset, :invite_sent_at) do
+      nil ->
+        put_change(
+          changeset,
+          :invite_sent_at,
+          DateTime.utc_now() |> DateTime.truncate(:second)
+        )
+
+      _ ->
+        changeset
     end
   end
 
   def can_start_stream?(invite) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
     with {:accepted, true} <- {:accepted, invite.status == "accepted"},
          {:time_passed, true} <- {
            :time_passed,
-           DateTime.diff(DateTime.utc_now(), invite.scheduled_start_time, :second) >= -3600
+           DateTime.diff(now, invite.scheduled_start_time, :second) >= -3600
          } do
       true
     else
