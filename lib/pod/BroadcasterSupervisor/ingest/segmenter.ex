@@ -146,7 +146,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
           Logger.warning("[Segmenter] Missing #{kbps}k segment for segment #{segment_number}")
 
         data ->
-          path = segment_path(state.live_stream_id, kbps, segment_name)
+          path = segment_path(state.live_stream_id, kbps, segment_name, state.storage)
           write_file(path, data, state.storage)
       end
     end)
@@ -220,6 +220,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
           "archive_path"     => archive_path,
           "duration_seconds" => duration_seconds
         })
+        PodWeb.FeedChannel.stream_ended(state.live_stream_id) # Broadcast to feed channel so listeners see it immediately
 
         Logger.info("[Segmenter] ✓ Archive finalised — #{state.segment_count} segments, " <>
           "#{duration_seconds}s, path: #{archive_path}")
@@ -325,9 +326,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
 
     request =
       ExAws.S3.put_object(bucket, path, data_binary,
-        content_type: content_type,
-        # Public read so the CDN and players can fetch without auth
-        acl: :public_read
+        content_type: content_type
       )
 
     case ExAws.request(request) do
@@ -347,12 +346,12 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
     "segment_#{String.pad_leading(Integer.to_string(number), 6, "0")}.aac"
   end
 
-  defp segment_path(live_stream_id, kbps, filename) do
-    base_path(live_stream_id) <> "/#{kbps}k/#{filename}"
+  defp segment_path(live_stream_id, kbps, filename, storage) do
+    base_path(live_stream_id, storage) <> "/#{kbps}k/#{filename}"
   end
 
-  defp playlist_path(live_stream_id, kbps, _storage) do
-    base_path(live_stream_id) <> "/#{kbps}k.m3u8"
+  defp playlist_path(live_stream_id, kbps, storage) do
+    base_path(live_stream_id, storage) <> "/#{kbps}k.m3u8"
   end
 
   defp master_playlist_path(live_stream_id, %{adapter: :local, local_path: local_path}) do
@@ -363,13 +362,12 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
     "broadcasters/#{live_stream_id}/master.m3u8"
   end
 
-  defp base_path(live_stream_id) do
-    storage = storage_config()
+  defp base_path(live_stream_id, %{adapter: :local, local_path: local_path}) do
+    "#{local_path}/#{live_stream_id}"
+  end
 
-    case storage.adapter do
-      :local -> "#{storage.local_path}/#{live_stream_id}"
-      :s3    -> "broadcasters/#{live_stream_id}"
-    end
+  defp base_path(live_stream_id, %{adapter: :s3}) do
+    "broadcasters/#{live_stream_id}"
   end
 
   defp setup_local_dirs(live_stream_id, local_path) do

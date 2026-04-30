@@ -121,7 +121,11 @@ defmodule Pod.Stream do
   Gets a single stream by ID.
   Returns nil if not found.
   """
-  def get_stream(id), do: Repo.get(LiveStream, id)
+  def get_stream(id) do
+    LiveStream
+    |> preload(:creator)
+    |> Repo.get(id)
+  end
 
   @doc """
   Gets a single stream by ID, raising if not found.
@@ -134,9 +138,8 @@ defmodule Pod.Stream do
   """
   def list_live_streams do
     LiveStream
-    |> where([s], s.status == "live")
-    |> where([s], s.is_private == false)
-    |> order_by([s], desc: s.actual_start_time)
+    |> where([s], s.status == "live" and s.is_private == false)
+    |> preload(:creator)
     |> Repo.all()
   end
 
@@ -146,6 +149,7 @@ defmodule Pod.Stream do
   def list_streams_for_creator(creator_id) do
     LiveStream
     |> where([s], s.creator_id == ^creator_id)
+    |> preload(:creator)
     |> order_by([s], desc: s.inserted_at)
     |> Repo.all()
   end
@@ -155,10 +159,8 @@ defmodule Pod.Stream do
   """
   def list_recorded_streams do
     LiveStream
-    |> where([s], s.status == "ended")
-    |> where([s], s.record_stream == true)
-    |> where([s], s.is_private == false)
-    |> order_by([s], desc: s.end_time)
+    |> where([s], s.status == "ended" and s.record_stream == true and s.is_private == false)
+    |> preload(:creator)
     |> Repo.all()
   end
 
@@ -240,42 +242,45 @@ defmodule Pod.Stream do
 
   defp maybe_add_invite_deadline(attrs), do: attrs
 
-
   def schedule_stream_jobs(%{scheduled_start_time: start_time, id: stream_id} = _stream) do
-  now        = DateTime.utc_now()
-  total_secs = DateTime.diff(start_time, now)
+    now = DateTime.utc_now()
+    total_secs = DateTime.diff(start_time, now)
 
-  # Don't schedule if start time is already in the past
-  if total_secs <= 0, do: :ok
+    # Don't schedule if start time is already in the past
+    if total_secs <= 0, do: :ok
 
-  base_jobs = [
-    {StreamStartWorker,    %{stream_id: stream_id},                    start_time},
-    {StreamReminderWorker, %{stream_id: stream_id, threshold: "5_sec"},  at_minus(start_time, 5)},
-    {StreamReminderWorker, %{stream_id: stream_id, threshold: "2_min"},  at_minus(start_time, 120)},
-    {StreamReminderWorker, %{stream_id: stream_id, threshold: "5_min"},  at_minus(start_time, 300)},
-    {StreamReminderWorker, %{stream_id: stream_id, threshold: "10_min"}, at_minus(start_time, 600)},
-  ]
+    base_jobs = [
+      {StreamStartWorker, %{stream_id: stream_id}, start_time},
+      {StreamReminderWorker, %{stream_id: stream_id, threshold: "5_sec"},
+       at_minus(start_time, 5)},
+      {StreamReminderWorker, %{stream_id: stream_id, threshold: "2_min"},
+       at_minus(start_time, 120)},
+      {StreamReminderWorker, %{stream_id: stream_id, threshold: "5_min"},
+       at_minus(start_time, 300)},
+      {StreamReminderWorker, %{stream_id: stream_id, threshold: "10_min"},
+       at_minus(start_time, 600)}
+    ]
 
-  ninety_percent_job =
-    if total_secs > 600 do
-      fire_at = at_minus(start_time, round(total_secs * 0.1))
-      [{StreamReminderWorker, %{stream_id: stream_id, threshold: "90_percent"}, fire_at}]
-    else
-      []
-    end
+    ninety_percent_job =
+      if total_secs > 600 do
+        fire_at = at_minus(start_time, round(total_secs * 0.1))
+        [{StreamReminderWorker, %{stream_id: stream_id, threshold: "90_percent"}, fire_at}]
+      else
+        []
+      end
 
-  (base_jobs ++ ninety_percent_job)
-  |> Enum.filter(fn {_, _, run_at} -> DateTime.after?(run_at, now) end)
-  |> Enum.each(fn {worker, args, run_at} ->
-    args
-    |> worker.new(scheduled_at: run_at, queue: :streams)
-    |> Oban.insert!()
-  end)
+    (base_jobs ++ ninety_percent_job)
+    |> Enum.filter(fn {_, _, run_at} -> DateTime.after?(run_at, now) end)
+    |> Enum.each(fn {worker, args, run_at} ->
+      args
+      |> worker.new(scheduled_at: run_at, queue: :streams)
+      |> Oban.insert!()
+    end)
 
-  :ok
-end
+    :ok
+  end
 
-defp at_minus(datetime, seconds) do
-  DateTime.add(datetime, -seconds, :second)
-end
+  defp at_minus(datetime, seconds) do
+    DateTime.add(datetime, -seconds, :second)
+  end
 end

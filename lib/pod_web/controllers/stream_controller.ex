@@ -174,29 +174,51 @@ defmodule PodWeb.StreamController do
     Guardian.Plug.current_resource(conn).id
   end
 
-  defp format_stream(stream) do
+  # ---------------------------------------------------------------------------
+  # Public format — used by FeedChannel and StreamChannel too
+  # Preloads creator so we can include name, avatar, channel_id
+  # ---------------------------------------------------------------------------
+
+  def format_stream_public(stream) do
+    storage = Application.get_env(:pod, :storage, [])
+    base_url = Keyword.get(storage, :base_url, "")
+
+    master_url =
+      case Keyword.get(storage, :adapter) do
+        :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
+        _local -> "#{base_url}/#{stream.id}/master.m3u8"
+      end
+
+    creator = stream.creator || %{}
+
     %{
-      id: stream.id,
-      title: stream.title,
-      description: stream.description,
-      category: stream.category,
-      status: stream.status,
-      is_private: stream.is_private,
-      allow_comments: stream.allow_comments,
-      record_stream: stream.record_stream,
-      audio_quality: stream.audio_quality,
-      tags: stream.tags,
-      thumbnail: stream.thumbnail,
-      language: stream.language,
-      age_restriction: stream.age_restriction,
-      viewer_count: stream.viewer_count,
-      peak_viewers: stream.peak_viewers,
+      id:                   stream.id,
+      title:                stream.title,
+      description:          stream.description,
+      category:             stream.category,
+      status:               stream.status,
+      is_private:           stream.is_private,
+      allow_comments:       stream.allow_comments,
+      record_stream:        stream.record_stream,
+      audio_quality:        stream.audio_quality,
+      tags:                 stream.tags,
+      thumbnail:            stream.thumbnail,
+      language:             stream.language,
+      age_restriction:      stream.age_restriction,
+      viewer_count:         stream.viewer_count,
+      peak_viewers:         stream.peak_viewers,
       scheduled_start_time: stream.scheduled_start_time,
-      actual_start_time: stream.actual_start_time,
-      end_time: stream.end_time,
-      creator_id: stream.creator_id
+      actual_start_time:    stream.actual_start_time,
+      end_time:             stream.end_time,
+      creator_id:           stream.creator_id,
+      channel_id:           stream.channel_id,
+      creator_name:         if(is_struct(creator), do: creator.name, else: nil),
+      creator_avatar:       if(is_struct(creator), do: creator.avatar, else: nil),
+      master_url:           master_url
     }
   end
+
+  defp format_stream(stream), do: format_stream_public(stream)
 
   defp format_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, _opts} -> msg end)

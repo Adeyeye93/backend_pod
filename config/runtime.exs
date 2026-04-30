@@ -117,16 +117,17 @@ if config_env() == :prod do
   #
   # See https://hexdocs.pm/swoosh/Swoosh.html#module-installation for details.
 
-   config :pod, Pod.Accounts.Guardian,
+  config :pod, Pod.Accounts.Guardian,
     issuer: "pod",
     secret_key: System.get_env("GUARDIAN_SECRET_KEY")
 
-   config :pod, :storage,
+  config :pod, :storage,
     adapter: :s3,
-    bucket: System.fetch_env!("AWS_S3_BUCKET")
+    bucket: "podb",
+    base_url: "https://podb.s3.us-east-1.amazonaws.com"
 
-    config :ex_aws,
-      access_key_id: System.fetch_env!("AWS_ACCESS_KEY_ID"),
-      secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY"),
-      region: System.get_env("AWS_REGION", "us-east-1")
+  config :ex_aws,
+    access_key_id: System.fetch_env!("AWS_ACCESS_KEY_ID"),
+    secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY"),
+    region: System.get_env("AWS_REGION", "us-east-1")
 end

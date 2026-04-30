@@ -7,6 +7,7 @@ defmodule PodWeb.ChannelSocket do
   ## Channels
   channel "stream:*", PodWeb.StreamChannel
   channel "scheduled_stream:*", PodWeb.ScheduledStreamChannel
+  channel "feed:*", PodWeb.FeedChannel
 
 
   # ---------------------------------------------------------------------------

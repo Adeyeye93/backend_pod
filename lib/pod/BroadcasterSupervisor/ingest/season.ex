@@ -253,6 +253,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
 
         # Mark stream as live in the database
         Stream.start_stream(live_stream)
+        PodWeb.FeedChannel.stream_started(live_stream) # Broadcast to feed channel so listeners see it immediately
 
         # Send AMF publish success response to the broadcaster's client
         AudioFrame.send_amf_publish_response(state.socket)

@@ -40,8 +40,12 @@ config :ex_aws,
   region: "us-east-1"
 
 config :pod, :storage,
-  adapter: :local,
-  local_path: "priv/segments"
+  adapter: (if System.get_env("USE_S3") == "true", do: :s3, else: :local),
+  bucket: "podb",
+  local_path: "priv/segments",
+  base_url: (if System.get_env("USE_S3") == "true",
+    do: "https://podb.s3.us-east-1.amazonaws.com",
+    else: "http://localhost:4000/segments")
 
 config :pod, Pod.Mailer, adapter: Swoosh.Adapters.Local
 
