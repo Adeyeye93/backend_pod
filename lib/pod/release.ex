@@ -13,14 +13,15 @@ defmodule Pod.Release do
   end
 
    def seed do
-    Application.load(@app)
+  load_app()
 
-    for repo <- repos() do
-      {:ok, _} = repo.start_link(pool_size: 2)
-    end
-
-    Code.eval_file("priv/repo/seeds.exs")
+  for repo <- repos() do
+    {:ok, _, _} =
+      Ecto.Migrator.with_repo(repo, fn _repo ->
+        Code.eval_file("priv/repo/seeds.exs")
+      end)
   end
+end
 
 
   def rollback(repo, version) do
