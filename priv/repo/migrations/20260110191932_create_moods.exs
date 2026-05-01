@@ -9,7 +9,7 @@ defmodule Pod.Repo.Migrations.CreateMoods do
       add :color, :string, default: "#000000"
       add :is_active, :boolean, default: true
 
-      timestamps()
+      timestamps(type: :utc_datetime)
     end
 
     # Create unique index on name

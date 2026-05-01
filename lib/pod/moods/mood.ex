@@ -12,7 +12,7 @@ defmodule Pod.Moods.Mood do
     # Associations (if you want to link moods to podcasts later)
     # many_to_many :podcasts, YourApp.Podcasts.Podcast, join_through: "podcast_moods"
 
-    timestamps()
+    timestamps(type: :utc_datetime)
   end
 
   @doc false
