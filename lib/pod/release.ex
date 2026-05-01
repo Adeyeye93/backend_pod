@@ -1,4 +1,7 @@
 defmodule Pod.Release do
+  @moduledoc """
+  Used for executing DB release tasks when using `Mix.Release`.
+  """
   @app :pod
 
   def migrate do
@@ -11,7 +14,7 @@ defmodule Pod.Release do
 
   def seed do
     load_app()
-    Code.eval_file("priv/repo/seeds.exs")
+    Pod.Seeds.run()
   end
 
   def rollback(repo, version) do
