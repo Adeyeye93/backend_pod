@@ -55,15 +55,15 @@ defmodule Pod.Seeds do
     Repo.insert_all(
       Interest,
       Enum.map(interests, &Map.merge(&1, %{inserted_at: now, updated_at: now})),
-      on_conflict: :nothing,
-      conflict_target: :name
+      on_conflict: :nothing
+      # no conflict_target
     )
 
     Repo.insert_all(
       Mood,
       Enum.map(moods, &Map.merge(&1, %{inserted_at: now, updated_at: now})),
-      on_conflict: :nothing,
-      conflict_target: :name
+      on_conflict: :nothing
+      # no conflict_target
     )
 
     IO.puts("Seeding complete.")
