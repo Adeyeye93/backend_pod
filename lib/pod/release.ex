@@ -12,17 +12,6 @@ defmodule Pod.Release do
     end
   end
 
-   def seed do
-  load_app()
-
-  for repo <- repos() do
-    {:ok, _, _} =
-      Ecto.Migrator.with_repo(repo, fn _repo ->
-        Code.eval_file("priv/repo/seeds.exs")
-      end)
-  end
-end
-
 
   def rollback(repo, version) do
     load_app()
