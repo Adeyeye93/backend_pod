@@ -21,6 +21,7 @@ defmodule Pod.Stream.Creator do
     has_many :live_streams, Pod.Stream.LiveStream, foreign_key: :creator_id
     has_many :sent_invites, Pod.Stream.GuestInvite, foreign_key: :host_creator_id
     has_many :received_invites, Pod.Stream.GuestInvite, foreign_key: :guest_creator_id
+    has_many :followers, Pod.Follows.Follow, foreign_key: :creator_id
 
     timestamps()
   end

@@ -22,8 +22,8 @@ defmodule PodWeb.AuthController do
             |> put_status(:created)
             |> json(%{
               message: "User registered successfully",
-              token: access_token,
-              refresh: refresh_token,
+              access_token: access_token,
+              refresh_token: refresh_token,
               user: %{id: user.id, email: user.email}
             })
 
@@ -49,8 +49,8 @@ defmodule PodWeb.AuthController do
             |> put_status(:ok)
             |> json(%{
               message: "Login successful",
-              token: access_token,
-              refresh: refresh_token,
+              access_token: access_token,
+              refresh_token: refresh_token,
               user: %{id: user.id, email: user.email}
             })
 
@@ -68,7 +68,7 @@ defmodule PodWeb.AuthController do
   end
 
   def refresh(conn, %{"refresh_token" => refresh_token}) do
-    case Guardian.decode_and_verify(refresh_token) do
+    case Guardian.decode_and_verify(refresh_token, %{"typ" => "refresh"}) do
       {:ok, claims} ->
         case Accounts.get_user(claims["sub"]) do
           %Accounts.User{} = user ->
@@ -82,7 +82,10 @@ defmodule PodWeb.AuthController do
                   refresh_token: new_refresh_token
                 })
 
-                # ... error handling
+              {:error, reason} ->
+                conn
+                |> put_status(:internal_server_error)
+                |> json(%{error: "Failed to generate tokens: #{inspect(reason)}"})
             end
 
           nil ->
@@ -91,10 +94,10 @@ defmodule PodWeb.AuthController do
             |> json(%{error: "User not found"})
         end
 
-      {:error, reason} ->
+      {:error, _reason} ->
         conn
         |> put_status(:unauthorized)
-        |> json(%{error: "Invalid refresh token: #{inspect(reason)}"})
+        |> json(%{error: "Invalid or expired refresh token"})
     end
   end
 
@@ -259,6 +262,7 @@ defmodule PodWeb.AuthController do
 
   defp format_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, _opts} ->
+      IO.inspect(msg)
       msg
     end)
   end

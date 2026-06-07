@@ -8,6 +8,7 @@ defmodule PodWeb.InterestsJSON do
       id: interest.id,
       name: interest.name,
       description: interest.description,
+      last_update: interest.updated_at
     }
   end
 end

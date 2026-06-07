@@ -31,6 +31,14 @@ defmodule PodWeb.Endpoint do
     gzip: not code_reloading?,
     only: PodWeb.static_paths()
 
+  # Serve locally-written HLS segments in dev — prod uses S3 directly.
+  if code_reloading? do
+    plug Plug.Static,
+      at: "/segments",
+      from: "priv/segments",
+      gzip: false
+  end
+
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.
   if code_reloading? do

@@ -109,6 +109,12 @@ defmodule Pod.Creators do
     |> Repo.update()
   end
 
+  def increment_followers_by_id(creator_id) do
+    Creator
+    |> where([c], c.id == ^creator_id)
+    |> Repo.update_all(inc: [follower_count: 1])
+  end
+
   @doc """
   Decrements the follower count for a creator by 1.
   Guards against going below zero.
@@ -119,6 +125,12 @@ defmodule Pod.Creators do
     creator
     |> Creator.update_changeset(%{follower_count: new_count})
     |> Repo.update()
+  end
+
+  def decrement_followers_by_id(creator_id) do
+    Creator
+    |> where([c], c.id == ^creator_id and c.follower_count > 0)
+    |> Repo.update_all(inc: [follower_count: -1])
   end
 
   # ---------------------------------------------------------------------------

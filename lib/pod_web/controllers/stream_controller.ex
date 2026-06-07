@@ -3,6 +3,7 @@ defmodule PodWeb.StreamController do
 
   alias Pod.Stream
   alias Pod.Creators
+  alias Pod.ListeningHistory
   alias Pod.Accounts.Guardian
 
   action_fallback PodWeb.FallbackController
@@ -20,12 +21,12 @@ defmodule PodWeb.StreamController do
              |> Map.put("creator_id", creator.id)
              |> Map.put("channel_id", creator.channel_id)
            ) do
-            Stream.schedule_stream_jobs(stream)
+      Stream.schedule_stream_jobs(stream)
       conn
       |> put_status(:created)
       |> json(%{
         message: "Stream scheduled successfully",
-        stream: format_stream(stream)
+        stream: format_stream(%{stream | creator: creator})
       })
     else
       nil ->
@@ -121,7 +122,7 @@ defmodule PodWeb.StreamController do
          {:ok, updated} <- Stream.end_stream(stream) do
       conn
       |> put_status(:ok)
-      |> json(%{message: "Stream ended", stream: format_stream(updated)})
+      |> json(%{message: "Stream ended", stream: format_stream(%{updated | creator: stream.creator})})
     else
       nil ->
         conn
@@ -167,6 +168,39 @@ defmodule PodWeb.StreamController do
   end
 
   # ---------------------------------------------------------------------------
+  # Record listening progress
+  # POST /api/streams/:stream_id/progress
+  #
+  # Called periodically by the mobile player (e.g. every 15 seconds).
+  # Creates or updates a single row per user per stream.
+  #
+  # Params:
+  #   progress_seconds  — integer, current playback position
+  #   completed         — boolean, true when the episode finishes
+  # ---------------------------------------------------------------------------
+
+  def update_progress(conn, %{"stream_id" => stream_id} = params) do
+    user_id          = get_user_id(conn)
+    progress_seconds = Map.get(params, "progress_seconds", 0)
+    completed        = Map.get(params, "completed", false)
+
+    case ListeningHistory.record_progress(user_id, stream_id, progress_seconds, completed) do
+      {:ok, history} ->
+        conn
+        |> put_status(:ok)
+        |> json(%{
+          progress_seconds: history.progress_seconds,
+          completed:        history.completed
+        })
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{errors: format_errors(changeset)})
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
 
@@ -189,7 +223,10 @@ defmodule PodWeb.StreamController do
         _local -> "#{base_url}/#{stream.id}/master.m3u8"
       end
 
-    creator = stream.creator || %{}
+    creator = case stream.creator do
+      %Ecto.Association.NotLoaded{} -> nil
+      c -> c
+    end
 
     %{
       id:                   stream.id,
@@ -212,8 +249,10 @@ defmodule PodWeb.StreamController do
       end_time:             stream.end_time,
       creator_id:           stream.creator_id,
       channel_id:           stream.channel_id,
-      creator_name:         if(is_struct(creator), do: creator.name, else: nil),
-      creator_avatar:       if(is_struct(creator), do: creator.avatar, else: nil),
+      creator_name:         creator && creator.name,
+      creator_avatar:       creator && creator.avatar,
+      duration_seconds:     stream.duration_seconds,
+      segment_count:        stream.segment_count,
       master_url:           master_url
     }
   end

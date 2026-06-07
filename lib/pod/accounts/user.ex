@@ -20,10 +20,12 @@ defmodule Pod.Accounts.User do
     has_many :interests, through: [:user_interests, :interest]
     has_many :social_accounts, Pod.Accounts.SocialAccount
 
-    # Podcast relationships - NEW
     has_one :creator, Pod.Stream.Creator, foreign_key: :user_id
     has_many :sent_invites, Pod.Stream.GuestInvite, foreign_key: :host_creator_id
     has_many :received_invites, Pod.Stream.GuestInvite, foreign_key: :guest_creator_id
+    has_many :follows, Pod.Follows.Follow, foreign_key: :follower_id
+    has_many :followed_creators, through: [:follows, :creator]
+    has_many :listening_histories, Pod.ListeningHistory.ListeningHistory, foreign_key: :user_id
 
     timestamps()
   end

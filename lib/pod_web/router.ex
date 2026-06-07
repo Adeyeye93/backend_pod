@@ -131,11 +131,22 @@ defmodule PodWeb.Router do
     get "/creators/me", CreatorController, :me
     put "/creators/me", CreatorController, :update
 
+    # Follows
+    post "/creators/:creator_id/follow", CreatorController, :follow
+    delete "/creators/:creator_id/follow", CreatorController, :unfollow
+
+    # Feed
+    get "/feed/home", FeedController, :home
+
+    # Uploads
+    post "/uploads/thumbnail_presign", UploadController, :thumbnail_presign
+
     # Stream management
     post "/streams/create", StreamController, :create
     get "/streams/my", StreamController, :my_streams
     put "/streams/:id/end", StreamController, :end_stream
     get "/streams/:id/stream_key", StreamController, :stream_key
+    post "/streams/:stream_id/progress", StreamController, :update_progress
     get "/streams/:stream_id/participants", GuestInviteController, :participants
 
     # Invite key — creator profile

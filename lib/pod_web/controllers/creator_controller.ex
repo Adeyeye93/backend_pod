@@ -2,6 +2,7 @@ defmodule PodWeb.CreatorController do
   use PodWeb, :controller
 
   alias Pod.Creators
+  alias Pod.Follows
   alias Pod.Accounts.Guardian
 
   action_fallback PodWeb.FallbackController
@@ -100,6 +101,50 @@ defmodule PodWeb.CreatorController do
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{errors: format_errors(changeset)})
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Follow a creator
+  # POST /api/creators/:creator_id/follow
+  # ---------------------------------------------------------------------------
+
+  def follow(conn, %{"creator_id" => creator_id}) do
+    user_id = get_user_id(conn)
+
+    case Follows.follow_creator(user_id, creator_id) do
+      {:ok, _} ->
+        conn |> put_status(:ok) |> json(%{message: "Following"})
+
+      {:error, :already_following} ->
+        conn |> put_status(:ok) |> json(%{message: "Already following"})
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{errors: format_errors(changeset)})
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Unfollow a creator
+  # DELETE /api/creators/:creator_id/follow
+  # ---------------------------------------------------------------------------
+
+  def unfollow(conn, %{"creator_id" => creator_id}) do
+    user_id = get_user_id(conn)
+
+    case Follows.unfollow_creator(user_id, creator_id) do
+      {:ok, _} ->
+        conn |> put_status(:ok) |> json(%{message: "Unfollowed"})
+
+      {:error, :not_following} ->
+        conn |> put_status(:ok) |> json(%{message: "Not following"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: inspect(reason)})
     end
   end
 

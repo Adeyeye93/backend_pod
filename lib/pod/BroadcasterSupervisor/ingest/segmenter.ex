@@ -260,7 +260,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
 
     segments_content =
       Enum.map_join(window, "\n", fn %{name: name, duration: duration} ->
-        "#EXTINF:#{duration}.0,\n#{name}"
+        "#EXTINF:#{duration}.0,\n#{kbps}k/#{name}"
       end)
 
     content = """
@@ -279,7 +279,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   defp write_archive_playlist(live_stream_id, kbps, all_segments, storage) do
     segments_content =
       Enum.map_join(all_segments, "\n", fn %{name: name, duration: duration} ->
-        "#EXTINF:#{duration}.0,\n#{name}"
+        "#EXTINF:#{duration}.0,\n#{kbps}k/#{name}"
       end)
 
     # #EXT-X-ENDLIST marks this as a complete VOD recording
