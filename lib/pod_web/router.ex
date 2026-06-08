@@ -138,6 +138,9 @@ defmodule PodWeb.Router do
     # Feed
     get "/feed/home", FeedController, :home
 
+    # Search
+    get "/search", SearchController, :search
+
     # Uploads
     post "/uploads/thumbnail_presign", UploadController, :thumbnail_presign
 
