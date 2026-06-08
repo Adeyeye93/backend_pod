@@ -26,3 +26,5 @@ erl_crash.dump
 pod-*.tar
 /priv/segments/
 
+.env.production
+.env

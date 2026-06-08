@@ -141,6 +141,19 @@ defmodule PodWeb.Router do
     # Search
     get "/search", SearchController, :search
 
+    # User playlists + following
+    # NOTE: /users/me/following MUST be declared before /users/me/:playlist
+    get "/users/me/following", UserController, :following
+    get "/users/me/:playlist", UserController, :playlist
+
+    # Recording playlist actions
+    post "/recordings/:recording_id/:playlist", PlaylistController, :add
+    delete "/recordings/:recording_id/:playlist", PlaylistController, :remove
+
+    # Channel follow / unfollow (by channel_id, not creator primary key)
+    post "/channels/:channel_id/follow", ChannelController, :follow
+    delete "/channels/:channel_id/follow", ChannelController, :unfollow
+
     # Uploads
     post "/uploads/thumbnail_presign", UploadController, :thumbnail_presign
 

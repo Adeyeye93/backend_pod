@@ -3,6 +3,7 @@ defmodule Pod.Follows do
   alias Pod.Repo
   alias Pod.Follows.Follow
   alias Pod.Stream.Creator
+  alias Pod.Stream.LiveStream
   alias Pod.Creators
 
   # ---------------------------------------------------------------------------
@@ -66,6 +67,26 @@ defmodule Pod.Follows do
     |> preload(:creator)
     |> Repo.all()
     |> Enum.map(& &1.creator)
+  end
+
+  @doc "Returns {creators, live_creator_ids_mapset} — avoids N+1 for is_live."
+  def list_followed_with_live(user_id) do
+    creators = list_followed_creators(user_id)
+
+    live_ids =
+      if creators == [] do
+        MapSet.new()
+      else
+        ids = Enum.map(creators, & &1.id)
+
+        LiveStream
+        |> where([s], s.status == "live" and s.creator_id in ^ids)
+        |> select([s], s.creator_id)
+        |> Repo.all()
+        |> MapSet.new()
+      end
+
+    {creators, live_ids}
   end
 
   @doc "Returns creator IDs the user follows — used for feed filtering."
