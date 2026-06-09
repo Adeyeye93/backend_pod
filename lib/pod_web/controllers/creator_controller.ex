@@ -124,6 +124,33 @@ defmodule PodWeb.CreatorController do
   end
 
   # ---------------------------------------------------------------------------
+  # Look up a creator by invite_key — used by host before sending an invite
+  # GET /api/creators/lookup?invite_key=abc123
+  # ---------------------------------------------------------------------------
+
+  def lookup(conn, %{"invite_key" => invite_key}) do
+    case Creators.get_creator_by_invite_key(invite_key) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "No creator found for that invite key"})
+
+      creator ->
+        conn
+        |> put_status(:ok)
+        |> json(%{
+          creator: %{
+            id:           creator.id,
+            channel_name: creator.name,
+            avatar_url:   creator.avatar
+          }
+        })
+    end
+  end
+
+  def lookup(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "invite_key is required"})
+  end
+
+  # ---------------------------------------------------------------------------
   # Get a creator profile by ID
   # GET /api/creators/:id
   # ---------------------------------------------------------------------------
