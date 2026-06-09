@@ -124,21 +124,33 @@ defmodule PodWeb.CreatorController do
   end
 
   # ---------------------------------------------------------------------------
-  # Get a public creator profile by ID
+  # Get a creator profile by ID
   # GET /api/creators/:id
   # ---------------------------------------------------------------------------
 
   def show(conn, %{"id" => id}) do
-    case Creators.get_creator_with_streams(id) do
+    case Creators.get_creator(id) do
       nil ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "Creator not found"})
+        conn |> put_status(:not_found) |> json(%{error: "Creator not found"})
 
       creator ->
+        user            = Guardian.Plug.current_resource(conn)
+        recording_count = Pod.Stream.count_creator_recordings(id)
+        is_following    = if user, do: Follows.following?(user.id, creator.id), else: false
+
         conn
         |> put_status(:ok)
-        |> json(%{creator: format_creator_public(creator)})
+        |> json(%{
+          creator: %{
+            id:              creator.id,
+            channel_name:    creator.name,
+            bio:             creator.bio,
+            avatar_url:      creator.avatar,
+            follower_count:  creator.follower_count,
+            recording_count: recording_count,
+            is_following:    is_following
+          }
+        })
     end
   end
 

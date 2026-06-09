@@ -105,8 +105,7 @@ defmodule PodWeb.Router do
     get "/streams/recorded", StreamController, :recorded
     get "/streams/public/:id", StreamController, :show
 
-    # Public creator profiles
-    get "/creators/:id", CreatorController, :show
+    # Public creator recordings (no auth needed to browse episodes)
     get "/creators/:id/recordings", CreatorController, :creator_recordings
   end
 
@@ -131,6 +130,7 @@ defmodule PodWeb.Router do
     post "/creators", CreatorController, :create
     get "/creators/me", CreatorController, :me
     put "/creators/me", CreatorController, :update
+    get "/creators/:id", CreatorController, :show
 
     # Creator profile (mobile-facing: channel_name/bio/avatar_url shape)
     get "/creator/profile", CreatorController, :profile

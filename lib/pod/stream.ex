@@ -155,6 +155,19 @@ defmodule Pod.Stream do
   end
 
   @doc """
+  Counts ended/recorded streams for a creator. Used for profile display.
+  """
+  def count_creator_recordings(creator_id) do
+    LiveStream
+    |> where([s],
+      s.creator_id == ^creator_id and
+        s.status == "ended" and
+        s.record_stream == true
+    )
+    |> Repo.aggregate(:count)
+  end
+
+  @doc """
   Gets all public recordings for a specific creator, newest first.
   """
   def list_creator_recordings(creator_id) do
