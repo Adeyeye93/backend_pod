@@ -107,6 +107,7 @@ defmodule PodWeb.Router do
 
     # Public creator profiles
     get "/creators/:id", CreatorController, :show
+    get "/creators/:id/recordings", CreatorController, :creator_recordings
   end
 
   # ---------------------------------------------------------------------------

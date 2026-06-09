@@ -172,6 +172,25 @@ defmodule PodWeb.CreatorController do
   end
 
   # ---------------------------------------------------------------------------
+  # List public recordings for a creator
+  # GET /api/creators/:id/recordings
+  # ---------------------------------------------------------------------------
+
+  def creator_recordings(conn, %{"id" => creator_id}) do
+    case Creators.get_creator(creator_id) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "Creator not found"})
+
+      _creator ->
+        recordings = Pod.Stream.list_creator_recordings(creator_id)
+
+        conn
+        |> put_status(:ok)
+        |> json(%{recordings: Enum.map(recordings, &format_recording_summary/1)})
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Follow a creator
   # POST /api/creators/:creator_id/follow
   # ---------------------------------------------------------------------------
@@ -319,6 +338,26 @@ defmodule PodWeb.CreatorController do
         |> put_status(:internal_server_error)
         |> json(%{error: "Could not read file: #{inspect(reason)}"})
     end
+  end
+
+  defp format_recording_summary(stream) do
+    storage  = Application.get_env(:pod, :storage, [])
+    base_url = Keyword.get(storage, :base_url, "")
+
+    master_url =
+      case Keyword.get(storage, :adapter) do
+        :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
+        _local -> "#{base_url}/#{stream.id}/master.m3u8"
+      end
+
+    %{
+      id:               stream.id,
+      title:            stream.title,
+      thumbnail_url:    stream.thumbnail,
+      master_url:       master_url,
+      duration_seconds: stream.duration_seconds,
+      published_at:     stream.end_time
+    }
   end
 
   defp format_profile(creator) do

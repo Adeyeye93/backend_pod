@@ -155,6 +155,21 @@ defmodule Pod.Stream do
   end
 
   @doc """
+  Gets all public recordings for a specific creator, newest first.
+  """
+  def list_creator_recordings(creator_id) do
+    LiveStream
+    |> where([s],
+      s.creator_id == ^creator_id and
+        s.status == "ended" and
+        s.record_stream == true and
+        s.is_private == false
+    )
+    |> order_by([s], desc: s.end_time)
+    |> Repo.all()
+  end
+
+  @doc """
   Gets all ended streams that were recorded — available as replays/podcasts.
   """
   def list_recorded_streams do
