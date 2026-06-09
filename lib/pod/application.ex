@@ -29,6 +29,9 @@ defmodule Pod.Application do
       # RTMP server — listens on port 1935
       {Pod.RTMPServer, port: 1935},
 
+      # Listening session registry (ETS owner) — must start before ListeningPresence
+      Pod.ListeningRegistry,
+
       # Presence servers — must be before the Endpoint
       Pod.ListeningPresence,
 

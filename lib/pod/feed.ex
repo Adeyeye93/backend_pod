@@ -10,10 +10,11 @@ defmodule Pod.Feed do
   import Ecto.Query
   alias Pod.Repo
   alias Pod.Stream.{LiveStream, Creator}
-  alias Pod.Accounts.UserInterest
+  alias Pod.Accounts.{User, UserInterest}
   alias Pod.Follows
   alias Pod.ListeningHistory
   alias Pod.Creators
+  alias Pod.ListeningPresence
 
   @live_limit        5
   @recordings_limit  10
@@ -480,5 +481,161 @@ defmodule Pod.Feed do
       adapter:  Keyword.get(config, :adapter, :local),
       base_url: Keyword.get(config, :base_url, "http://localhost:4000/segments")
     }
+  end
+
+  # ---------------------------------------------------------------------------
+  # Listening-Now feed
+  # ---------------------------------------------------------------------------
+
+  @listening_now_limit   20
+  @listener_preview_limit 3
+
+  @doc """
+  Returns active listening sessions ranked by relevance to `user`.
+
+  Ranking tiers (ascending rank score, lower = better):
+    "both"     — social signal AND interest match
+    "interest" — interest match OR social signal alone
+    "none"     — no signal
+
+  Within each tier sessions are ordered by listener_count desc.
+  """
+  def listening_now(user) do
+    recording_ids = Pod.ListeningRegistry.list_all()
+    if recording_ids == [], do: [], else: do_listening_now(user, recording_ids)
+  end
+
+  defp do_listening_now(user, recording_ids) do
+    sessions_raw =
+      recording_ids
+      |> Enum.map(fn id -> {id, ListeningPresence.list("listening:#{id}")} end)
+      |> Enum.reject(fn {_id, p} -> map_size(p) == 0 end)
+
+    if sessions_raw == [] do
+      []
+    else
+      stream_ids       = Enum.map(sessions_raw, fn {id, _} -> id end)
+      all_listener_ids = sessions_raw |> Enum.flat_map(fn {_, p} -> Map.keys(p) end) |> Enum.uniq()
+
+      [streams_map, users_map] =
+        [
+          Task.async(fn -> load_streams_map(stream_ids) end),
+          Task.async(fn -> load_users_map(all_listener_ids) end)
+        ]
+        |> Task.await_many(5_000)
+
+      storage       = storage_config()
+      interest_set  = fetch_interest_names(user.id) |> MapSet.new()
+      social_ids    = build_social_set(user)
+
+      sessions_raw
+      |> Enum.map(fn {recording_id, presences} ->
+        case Map.get(streams_map, recording_id) do
+          nil    -> nil
+          stream -> build_session_item(recording_id, presences, stream, users_map, interest_set, social_ids, storage)
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort_by(fn s -> {match_rank(s.match), -s.listener_count} end)
+      |> Enum.take(@listening_now_limit)
+    end
+  end
+
+  defp build_session_item(recording_id, presences, stream, users_map, interest_set, social_ids, storage) do
+    listener_pairs =
+      Enum.map(presences, fn {uid, %{metas: metas}} ->
+        meta     = List.last(metas)
+        position = Map.get(meta, :current_position_seconds, 0)
+        {uid, position}
+      end)
+
+    listener_ids = Enum.map(listener_pairs, fn {uid, _} -> uid end)
+
+    avg_position =
+      case listener_pairs do
+        [] -> 0
+        ps -> div(Enum.sum(Enum.map(ps, fn {_, p} -> p end)), length(ps))
+      end
+
+    listeners =
+      listener_ids
+      |> Enum.take(@listener_preview_limit)
+      |> Enum.map(fn uid ->
+        case Map.get(users_map, uid) do
+          nil  -> %{user_id: uid, username: nil, avatar_url: nil}
+          user -> %{user_id: uid, username: user.username, avatar_url: user.avatar_url}
+        end
+      end)
+
+    creator = loaded_creator(stream.creator)
+
+    %{
+      recording_id:             recording_id,
+      title:                    stream.title,
+      thumbnail_url:            stream.thumbnail,
+      master_url:               master_url(recording_id, storage),
+      creator_id:               stream.creator_id,
+      creator_name:             creator && creator.name,
+      creator_avatar_url:       creator && creator.avatar,
+      duration_seconds:         stream.duration_seconds,
+      current_position_seconds: avg_position,
+      listener_count:           length(listener_ids),
+      listeners:                listeners,
+      match:                    compute_match(listener_ids, stream.category, interest_set, social_ids)
+    }
+  end
+
+  defp compute_match(listener_ids, category, interest_set, social_ids) do
+    interest? = MapSet.member?(interest_set, category)
+    social?   = Enum.any?(listener_ids, &MapSet.member?(social_ids, &1))
+
+    cond do
+      social? and interest? -> "both"
+      social? or interest?  -> "interest"
+      true                  -> "none"
+    end
+  end
+
+  defp match_rank("both"),     do: 0
+  defp match_rank("interest"), do: 1
+  defp match_rank(_),          do: 2
+
+  defp build_social_set(user) do
+    followed_creator_ids = Follows.list_followed_creator_ids(user.id)
+
+    followed_user_ids =
+      if followed_creator_ids == [] do
+        MapSet.new()
+      else
+        Creator
+        |> where([c], c.id in ^followed_creator_ids)
+        |> select([c], c.user_id)
+        |> Repo.all()
+        |> MapSet.new()
+      end
+
+    my_follower_ids =
+      case Creators.get_creator_by_user(user.id) do
+        nil     -> MapSet.new()
+        creator -> Follows.list_follower_ids(creator.id) |> MapSet.new()
+      end
+
+    MapSet.union(followed_user_ids, my_follower_ids)
+  end
+
+  defp load_streams_map([]), do: %{}
+  defp load_streams_map(ids) do
+    LiveStream
+    |> where([s], s.id in ^ids)
+    |> preload(:creator)
+    |> Repo.all()
+    |> Map.new(fn s -> {s.id, s} end)
+  end
+
+  defp load_users_map([]), do: %{}
+  defp load_users_map(ids) do
+    from(u in User, where: u.id in ^ids)
+    |> Repo.all()
+    |> Map.new(fn u -> {u.id, u} end)
   end
 end

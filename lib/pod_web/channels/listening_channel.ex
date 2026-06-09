@@ -12,17 +12,26 @@ defmodule PodWeb.ListeningChannel do
   # Join — topic: "listening:{recording_id}"
   #
   # Auth is already verified at socket connect time (JWT → user_id in assigns).
-  # We only need to confirm the assign is present; if somehow it isn't we reject.
+  # Optional join param: current_position_seconds (integer, default 0)
   # ---------------------------------------------------------------------------
 
   @impl true
-  def join("listening:" <> recording_id, _params, socket) do
+  def join("listening:" <> recording_id, params, socket) do
     case socket.assigns[:user_id] do
       nil ->
         {:error, %{reason: "unauthorized"}}
 
       _user_id ->
-        socket = assign(socket, :recording_id, recording_id)
+        position = case Map.get(params, "current_position_seconds") do
+          p when is_integer(p) and p >= 0 -> p
+          _ -> 0
+        end
+
+        socket =
+          socket
+          |> assign(:recording_id, recording_id)
+          |> assign(:initial_position, position)
+
         send(self(), :after_join)
         {:ok, socket}
     end
@@ -34,31 +43,43 @@ defmodule PodWeb.ListeningChannel do
 
   @impl true
   def handle_info(:after_join, socket) do
-    user_id = socket.assigns.user_id
+    user_id      = socket.assigns.user_id
+    recording_id = socket.assigns.recording_id
+
+    Pod.ListeningRegistry.touch(recording_id)
 
     {:ok, _} = ListeningPresence.track(socket, user_id, %{
-      user_id:   user_id,
-      joined_at: System.system_time(:second)
+      user_id:                  user_id,
+      joined_at:                System.system_time(:second),
+      current_position_seconds: socket.assigns[:initial_position] || 0
     })
 
     presences = ListeningPresence.list(socket.topic)
-
-    # Send current full presence map to the joiner only
     push(socket, "presence_state", presences)
-
-    # Send the simple count as well (for clients that skip Presence parsing)
     push(socket, "listener_count", %{count: map_size(presences)})
 
     {:noreply, socket}
   end
 
   # ---------------------------------------------------------------------------
-  # Intercept presence_diff
-  #
-  # Presence broadcasts presence_diff automatically to all subscribers.
-  # We intercept it to:
-  #   1. Forward the diff to the client unchanged
-  #   2. Piggyback a listener_count event so simple clients get the total
+  # Client → server: periodic position sync
+  # Mobile sends: { "position": 2540 }
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def handle_in("sync_position", %{"position" => position}, socket)
+      when is_integer(position) and position >= 0 do
+    ListeningPresence.update(socket, socket.assigns.user_id, fn meta ->
+      Map.put(meta, :current_position_seconds, position)
+    end)
+
+    {:noreply, socket}
+  end
+
+  def handle_in("sync_position", _params, socket), do: {:noreply, socket}
+
+  # ---------------------------------------------------------------------------
+  # Intercept presence_diff — forward diff + push updated listener_count
   # ---------------------------------------------------------------------------
 
   @impl true

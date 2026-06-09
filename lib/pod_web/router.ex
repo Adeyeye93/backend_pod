@@ -143,7 +143,8 @@ defmodule PodWeb.Router do
     delete "/creators/:creator_id/follow", CreatorController, :unfollow
 
     # Feed
-    get "/feed/home", FeedController, :home
+    get "/feed/home",          FeedController, :home
+    get "/feed/listening-now", FeedController, :listening_now
 
     # Search
     get "/search", SearchController, :search
