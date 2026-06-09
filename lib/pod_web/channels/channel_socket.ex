@@ -5,9 +5,10 @@ defmodule PodWeb.ChannelSocket do
   alias Pod.Accounts.Guardian
 
   ## Channels
-  channel "stream:*", PodWeb.StreamChannel
+  channel "stream:*",     PodWeb.StreamChannel
   channel "scheduled_stream:*", PodWeb.ScheduledStreamChannel
-  channel "feed:*", PodWeb.FeedChannel
+  channel "feed:*",       PodWeb.FeedChannel
+  channel "listening:*",  PodWeb.ListeningChannel
 
 
   # ---------------------------------------------------------------------------

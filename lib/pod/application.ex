@@ -28,8 +28,10 @@ defmodule Pod.Application do
 
       # RTMP server — listens on port 1935
       {Pod.RTMPServer, port: 1935},
-      # Start a worker by calling: Pod.Worker.start_link(arg)
-      # {Pod.Worker, arg},
+
+      # Presence servers — must be before the Endpoint
+      Pod.ListeningPresence,
+
       # Start to serve requests, typically the last entry
       PodWeb.Endpoint
     ]
