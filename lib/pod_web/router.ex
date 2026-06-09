@@ -160,6 +160,7 @@ defmodule PodWeb.Router do
     # Stream management
     post "/streams/create", StreamController, :create
     get "/streams/my", StreamController, :my_streams
+    get "/streams/:id", StreamController, :show
     put "/streams/:id/end", StreamController, :end_stream
     get "/streams/:id/stream_key", StreamController, :stream_key
     post "/streams/:stream_id/progress", StreamController, :update_progress
