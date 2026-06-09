@@ -21,7 +21,8 @@ defmodule PodWeb.CreatorController do
         conn |> put_status(:not_found) |> json(%{error: "Creator profile not found"})
 
       creator ->
-        conn |> put_status(:ok) |> json(format_profile(creator))
+        recording_count = Pod.Stream.count_creator_recordings(creator.id)
+        conn |> put_status(:ok) |> json(format_profile(creator, recording_count))
     end
   end
 
@@ -38,7 +39,8 @@ defmodule PodWeb.CreatorController do
 
     with creator when not is_nil(creator) <- Creators.get_creator_by_user(user_id),
          {:ok, updated} <- Creators.update_creator(creator, attrs) do
-      conn |> put_status(:ok) |> json(format_profile(updated))
+      recording_count = Pod.Stream.count_creator_recordings(updated.id)
+      conn |> put_status(:ok) |> json(format_profile(updated, recording_count))
     else
       nil ->
         conn |> put_status(:not_found) |> json(%{error: "Creator profile not found"})
@@ -399,11 +401,14 @@ defmodule PodWeb.CreatorController do
     }
   end
 
-  defp format_profile(creator) do
+  defp format_profile(creator, recording_count) do
     %{
-      channel_name: creator.name,
-      bio:          creator.bio,
-      avatar_url:   creator.avatar
+      id:              creator.id,
+      channel_name:    creator.name,
+      bio:             creator.bio,
+      avatar_url:      creator.avatar,
+      follower_count:  creator.follower_count,
+      recording_count: recording_count
     }
   end
 
