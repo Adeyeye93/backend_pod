@@ -281,6 +281,12 @@ defmodule Pod.Accounts do
     Repo.one(query)
   end
 
+  def update_profile(%User{} = user, attrs) do
+    user
+    |> User.profile_changeset(attrs)
+    |> Repo.update()
+  end
+
   def update_push_token(%User{} = user, token) do
     user
     |> User.push_token_changeset(%{push_token: token})

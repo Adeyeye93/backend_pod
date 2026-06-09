@@ -3,10 +3,86 @@ defmodule PodWeb.UserController do
 
   alias Pod.Playlists
   alias Pod.Follows
+  alias Pod.Accounts
   alias Pod.Playlist.UserPlaylist
   alias Pod.Accounts.Guardian
 
   action_fallback PodWeb.FallbackController
+
+  @allowed_image_types ~w(image/jpeg image/png image/webp)
+
+  # ---------------------------------------------------------------------------
+  # GET /api/users/me
+  # ---------------------------------------------------------------------------
+
+  def show_me(conn, _params) do
+    user = Guardian.Plug.current_resource(conn)
+
+    conn
+    |> put_status(:ok)
+    |> json(%{
+      user: %{
+        id:         user.id,
+        email:      user.email,
+        username:   user.username,
+        bio:        user.bio,
+        avatar_url: user.avatar_url
+      }
+    })
+  end
+
+  # ---------------------------------------------------------------------------
+  # PUT /api/users/me
+  # Body: { username, bio }   — both optional
+  # ---------------------------------------------------------------------------
+
+  def update_me(conn, params) do
+    user  = Guardian.Plug.current_resource(conn)
+    attrs = Map.take(params, ["username", "bio"])
+
+    case Accounts.update_profile(user, attrs) do
+      {:ok, updated} ->
+        conn
+        |> put_status(:ok)
+        |> json(%{
+          user: %{
+            id:         updated.id,
+            email:      updated.email,
+            username:   updated.username,
+            bio:        updated.bio,
+            avatar_url: updated.avatar_url
+          }
+        })
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{errors: format_errors(changeset)})
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/users/me/avatar
+  # Multipart form-data: avatar (file field)
+  # ---------------------------------------------------------------------------
+
+  def upload_avatar(conn, %{"avatar" => %Plug.Upload{} = upload}) do
+    storage = Application.get_env(:pod, :storage, [])
+
+    case Keyword.get(storage, :adapter) do
+      :s3 ->
+        do_s3_avatar_upload(conn, upload, storage)
+
+      _ ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "Avatar upload requires S3 storage"})
+    end
+  end
+
+  def upload_avatar(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "Missing avatar file field"})
+  end
 
   # GET /api/users/me/following
   def following(conn, _params) do
@@ -39,6 +115,58 @@ defmodule PodWeb.UserController do
   # ---------------------------------------------------------------------------
 
   defp get_user_id(conn), do: Guardian.Plug.current_resource(conn).id
+
+  defp do_s3_avatar_upload(conn, upload, storage) do
+    user = Guardian.Plug.current_resource(conn)
+
+    with true          <- upload.content_type in @allowed_image_types || {:error, :invalid_type},
+         {:ok, binary} <- File.read(upload.path) do
+      bucket   = Keyword.fetch!(storage, :bucket)
+      base_url = Keyword.get(storage, :base_url, "")
+      ext      = ext_for(upload.content_type)
+      key      = "avatars/users/#{user.id}/#{UUID.uuid4()}#{ext}"
+
+      case ExAws.S3.put_object(bucket, key, binary, content_type: upload.content_type)
+           |> ExAws.request() do
+        {:ok, _} ->
+          avatar_url = "#{base_url}/#{key}"
+
+          case Accounts.update_profile(user, %{avatar_url: avatar_url}) do
+            {:ok, _updated} ->
+              conn |> put_status(:ok) |> json(%{avatar_url: avatar_url})
+
+            {:error, changeset} ->
+              conn
+              |> put_status(:unprocessable_entity)
+              |> json(%{errors: format_errors(changeset)})
+          end
+
+        {:error, reason} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "Upload failed: #{inspect(reason)}"})
+      end
+    else
+      {:error, :invalid_type} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "File must be jpeg, png, or webp"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Could not read file: #{inspect(reason)}"})
+    end
+  end
+
+  defp ext_for("image/jpeg"), do: ".jpg"
+  defp ext_for("image/png"),  do: ".png"
+  defp ext_for("image/webp"), do: ".webp"
+  defp ext_for(_),            do: ".jpg"
+
+  defp format_errors(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {msg, _opts} -> msg end)
+  end
 
   defp format_recording(stream) do
     storage  = Application.get_env(:pod, :storage, [])

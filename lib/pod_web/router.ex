@@ -151,6 +151,11 @@ defmodule PodWeb.Router do
     # Device push token
     put "/users/me/push_token", DeviceController, :register
 
+    # User profile
+    get  "/users/me",        UserController, :show_me
+    put  "/users/me",        UserController, :update_me
+    post "/users/me/avatar", UserController, :upload_avatar
+
     # User playlists + following
     # NOTE: /users/me/following MUST be declared before /users/me/:playlist
     get "/users/me/following", UserController, :following

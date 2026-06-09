@@ -51,6 +51,12 @@ defmodule Pod.Accounts.User do
     |> password_changeset(attrs, opts)
   end
 
+  def profile_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:username, :bio, :avatar_url])
+    |> validate_length(:username, min: 2, max: 50)
+  end
+
   def push_token_changeset(user, attrs) do
     user
     |> cast(attrs, [:push_token])

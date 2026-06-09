@@ -51,7 +51,7 @@ defmodule PodWeb.AuthController do
               message: "Login successful",
               access_token: access_token,
               refresh_token: refresh_token,
-              user: %{id: user.id, email: user.email}
+              user: %{id: user.id, email: user.email, }
             })
 
           {:error, reason} ->
