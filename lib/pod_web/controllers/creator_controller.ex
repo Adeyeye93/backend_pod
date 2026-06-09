@@ -7,6 +7,73 @@ defmodule PodWeb.CreatorController do
 
   action_fallback PodWeb.FallbackController
 
+  @allowed_image_types ~w(image/jpeg image/png image/webp)
+
+  # ---------------------------------------------------------------------------
+  # GET /api/creator/profile
+  # ---------------------------------------------------------------------------
+
+  def profile(conn, _params) do
+    user_id = get_user_id(conn)
+
+    case Creators.get_creator_by_user(user_id) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "Creator profile not found"})
+
+      creator ->
+        conn |> put_status(:ok) |> json(format_profile(creator))
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # PUT /api/creator/profile
+  # Body: { channel_name, bio }
+  # ---------------------------------------------------------------------------
+
+  def update_profile(conn, params) do
+    user_id = get_user_id(conn)
+    attrs   = %{"name" => params["channel_name"], "bio" => params["bio"]}
+              |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+              |> Map.new()
+
+    with creator when not is_nil(creator) <- Creators.get_creator_by_user(user_id),
+         {:ok, updated} <- Creators.update_creator(creator, attrs) do
+      conn |> put_status(:ok) |> json(format_profile(updated))
+    else
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "Creator profile not found"})
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{errors: format_errors(changeset)})
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/creator/avatar
+  # Multipart form-data: avatar (file field)
+  # Uploads to S3, updates creator.avatar, returns { avatar_url }
+  # ---------------------------------------------------------------------------
+
+  def upload_avatar(conn, %{"avatar" => %Plug.Upload{} = upload}) do
+    storage = Application.get_env(:pod, :storage, [])
+
+    case Keyword.get(storage, :adapter) do
+      :s3 ->
+        do_s3_avatar_upload(conn, upload, storage)
+
+      _ ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "Avatar upload requires S3 storage"})
+    end
+  end
+
+  def upload_avatar(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "Missing avatar file field"})
+  end
+
   # ---------------------------------------------------------------------------
   # Create a creator profile for the authenticated user
   # POST /api/creators
@@ -202,4 +269,68 @@ defmodule PodWeb.CreatorController do
   defp format_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, _opts} -> msg end)
   end
+
+  # ---------------------------------------------------------------------------
+  # S3 avatar upload
+  # ---------------------------------------------------------------------------
+
+  defp do_s3_avatar_upload(conn, upload, storage) do
+    user_id = get_user_id(conn)
+
+    with creator when not is_nil(creator) <- Creators.get_creator_by_user(user_id),
+         true <- upload.content_type in @allowed_image_types || {:error, :invalid_type},
+         {:ok, binary} <- File.read(upload.path) do
+      bucket   = Keyword.fetch!(storage, :bucket)
+      base_url = Keyword.get(storage, :base_url, "")
+      ext      = ext_for_content_type(upload.content_type)
+      key      = "avatars/#{creator.id}/#{UUID.uuid4()}#{ext}"
+
+      case ExAws.S3.put_object(bucket, key, binary, content_type: upload.content_type)
+           |> ExAws.request() do
+        {:ok, _} ->
+          avatar_url = "#{base_url}/#{key}"
+
+          case Creators.update_creator(creator, %{avatar: avatar_url}) do
+            {:ok, _updated} ->
+              conn |> put_status(:ok) |> json(%{avatar_url: avatar_url})
+
+            {:error, changeset} ->
+              conn
+              |> put_status(:unprocessable_entity)
+              |> json(%{errors: format_errors(changeset)})
+          end
+
+        {:error, reason} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "Upload failed: #{inspect(reason)}"})
+      end
+    else
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "Creator profile not found"})
+
+      {:error, :invalid_type} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "File must be jpeg, png, or webp"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Could not read file: #{inspect(reason)}"})
+    end
+  end
+
+  defp format_profile(creator) do
+    %{
+      channel_name: creator.name,
+      bio:          creator.bio,
+      avatar_url:   creator.avatar
+    }
+  end
+
+  defp ext_for_content_type("image/jpeg"), do: ".jpg"
+  defp ext_for_content_type("image/png"),  do: ".png"
+  defp ext_for_content_type("image/webp"), do: ".webp"
+  defp ext_for_content_type(_),            do: ".jpg"
 end

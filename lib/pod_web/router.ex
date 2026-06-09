@@ -131,6 +131,11 @@ defmodule PodWeb.Router do
     get "/creators/me", CreatorController, :me
     put "/creators/me", CreatorController, :update
 
+    # Creator profile (mobile-facing: channel_name/bio/avatar_url shape)
+    get "/creator/profile", CreatorController, :profile
+    put "/creator/profile", CreatorController, :update_profile
+    post "/creator/avatar", CreatorController, :upload_avatar
+
     # Follows
     post "/creators/:creator_id/follow", CreatorController, :follow
     delete "/creators/:creator_id/follow", CreatorController, :unfollow
