@@ -182,6 +182,8 @@ defmodule Pod.GuestInvites do
   alias Pod.Stream.GuestInvite
   alias Pod.Stream.LiveStream
   alias Pod.Creators
+  alias Pod.Accounts
+  alias Pod.Notifications
 
   @max_guests 4
 
@@ -216,15 +218,27 @@ defmodule Pod.GuestInvites do
         stream.scheduled_start_time
         |> DateTime.truncate(:second)
 
-      %GuestInvite{}
-      |> GuestInvite.changeset(%{
-        live_stream_id: stream.id,
-        host_creator_id: host_creator_id,
-        guest_creator_id: guest_creator.id,
-        scheduled_start_time: scheduled,
-        role: "guest"
-      })
-      |> Repo.insert()
+      result =
+        %GuestInvite{}
+        |> GuestInvite.changeset(%{
+          live_stream_id:       stream.id,
+          host_creator_id:      host_creator_id,
+          guest_creator_id:     guest_creator.id,
+          scheduled_start_time: scheduled,
+          role:                 "guest"
+        })
+        |> Repo.insert()
+
+      if match?({:ok, _}, result) do
+        notify_async(fn ->
+          with user when not is_nil(user) <- Accounts.get_user_by_creator(guest_creator.id),
+               host when not is_nil(host) <- Creators.get_creator(host_creator_id) do
+            Notifications.notify_invite_received(user, stream.title, host.name)
+          end
+        end)
+      end
+
+      result
     end
   end
 
@@ -243,18 +257,27 @@ defmodule Pod.GuestInvites do
   cannot be used to invite the same creator again.
   """
   def accept(%GuestInvite{status: "pending"} = invite) do
-    Repo.transaction(fn ->
-      # Update invite status
-      updated_invite =
-        invite
-        |> GuestInvite.accept_changeset(%{})
-        |> Repo.update!()
+    result =
+      Repo.transaction(fn ->
+        updated_invite =
+          invite
+          |> GuestInvite.accept_changeset(%{})
+          |> Repo.update!()
 
-      # Refresh the guest's invite key immediately — one-time use
-      Creators.refresh_invite_key(invite.guest_creator_id)
+        Creators.refresh_invite_key(invite.guest_creator_id)
+        updated_invite
+      end)
 
-      updated_invite
-    end)
+    if match?({:ok, _}, result) do
+      notify_async(fn ->
+        with user when not is_nil(user) <- Accounts.get_user_by_creator(invite.host_creator_id),
+             guest when not is_nil(guest) <- Creators.get_creator(invite.guest_creator_id) do
+          Notifications.notify_invite_accepted(user, guest.name)
+        end
+      end)
+    end
+
+    result
   end
 
   def accept(%GuestInvite{}), do: {:error, :already_responded}
@@ -264,9 +287,21 @@ defmodule Pod.GuestInvites do
   The invite_key is NOT refreshed on decline — only on accept.
   """
   def decline(%GuestInvite{status: "pending"} = invite) do
-    invite
-    |> GuestInvite.decline_changeset(%{})
-    |> Repo.update()
+    result =
+      invite
+      |> GuestInvite.decline_changeset(%{})
+      |> Repo.update()
+
+    if match?({:ok, _}, result) do
+      notify_async(fn ->
+        with user when not is_nil(user) <- Accounts.get_user_by_creator(invite.host_creator_id),
+             guest when not is_nil(guest) <- Creators.get_creator(invite.guest_creator_id) do
+          Notifications.notify_invite_declined(user, guest.name)
+        end
+      end)
+    end
+
+    result
   end
 
   def decline(%GuestInvite{}), do: {:error, :already_responded}
@@ -393,6 +428,8 @@ defmodule Pod.GuestInvites do
       :ok
     end
   end
+
+  defp notify_async(fun), do: Task.start(fun)
 
   defp check_not_already_invited(live_stream_id, guest_creator_id) do
     existing =

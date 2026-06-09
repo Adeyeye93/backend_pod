@@ -14,6 +14,7 @@ defmodule Pod.Accounts.User do
     field :has_interest, :boolean, default: false
     field :interests_selected_at, :naive_datetime
     field :am_a_creator, :boolean, default: false
+    field :push_token, :string
 
     # Relationships
     has_many :user_interests, Pod.Accounts.UserInterest
@@ -48,6 +49,12 @@ defmodule Pod.Accounts.User do
     ])
     |> validate_email(opts)
     |> password_changeset(attrs, opts)
+  end
+
+  def push_token_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:push_token])
+    |> validate_required([:push_token])
   end
 
   def interest_changeset(user, attrs) do

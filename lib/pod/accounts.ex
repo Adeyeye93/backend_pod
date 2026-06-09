@@ -280,4 +280,10 @@ defmodule Pod.Accounts do
 
     Repo.one(query)
   end
+
+  def update_push_token(%User{} = user, token) do
+    user
+    |> User.push_token_changeset(%{push_token: token})
+    |> Repo.update()
+  end
 end
