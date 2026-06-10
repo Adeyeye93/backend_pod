@@ -47,6 +47,7 @@ defmodule Pod.Stream.LiveStream do
     field :segment_count, :integer, default: 0
     field :archive_path, :string
     field :duration_seconds, :integer, default: 0
+    field :download_url, :string
 
     belongs_to :creator, Pod.Stream.Creator, type: :binary_id
     has_many :guest_invites, Pod.Stream.GuestInvite, foreign_key: :live_stream_id
@@ -114,8 +115,42 @@ defmodule Pod.Stream.LiveStream do
       :engagement_rate,
       :segment_count,
       :archive_path,
-      :duration_seconds
+      :duration_seconds,
+      :download_url
     ])
     |> validate_inclusion(:status, ["ended"])
+  end
+
+  def packaging_changeset(stream, attrs) do
+    cast(stream, attrs, [:download_url])
+  end
+
+  @doc """
+  Changeset for manually uploaded recordings.
+  Does not require scheduled_start_time, stream_key, or rtmp_url.
+  archive_path stores the uploaded audio URL (master_url in API responses).
+  """
+  def recording_changeset(stream, attrs) do
+    stream
+    |> cast(attrs, [
+      :title,
+      :description,
+      :category,
+      :creator_id,
+      :channel_id,
+      :thumbnail,
+      :archive_path,
+      :duration_seconds,
+      :tags,
+      :language,
+      :is_private,
+      :status,
+      :record_stream,
+      :actual_start_time,
+      :end_time,
+      :download_url
+    ])
+    |> validate_required([:title, :category, :creator_id, :channel_id])
+    |> validate_inclusion(:status, ["scheduled", "live", "ended"])
   end
 end

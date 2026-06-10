@@ -168,6 +168,52 @@ defmodule PodWeb.StreamController do
   end
 
   # ---------------------------------------------------------------------------
+  # Create a manually-uploaded recording (no RTMP)
+  # POST /api/recordings
+  #
+  # Body: { title, description, thumbnail_url, master_url, duration_seconds, category }
+  # master_url is the audio_url returned from POST /api/uploads/audio_presign
+  # ---------------------------------------------------------------------------
+
+  def create_recording(conn, params) do
+    user_id = get_user_id(conn)
+
+    case Creators.get_creator_by_user(user_id) do
+      nil ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "Creator profile not found. Set up your creator profile first."})
+
+      creator ->
+        attrs = %{
+          "title"            => Map.get(params, "title"),
+          "description"      => Map.get(params, "description"),
+          "category"         => Map.get(params, "category"),
+          "thumbnail"        => Map.get(params, "thumbnail_url"),
+          "archive_path"     => Map.get(params, "master_url"),
+          "duration_seconds" => Map.get(params, "duration_seconds", 0),
+          "tags"             => Map.get(params, "tags", []),
+          "language"         => Map.get(params, "language", "en"),
+          "is_private"       => Map.get(params, "is_private", false),
+          "creator_id"       => creator.id,
+          "channel_id"       => creator.channel_id
+        }
+
+        case Stream.create_recording(attrs) do
+          {:ok, recording} ->
+            conn
+            |> put_status(:created)
+            |> json(%{recording: format_stream(%{recording | creator: creator})})
+
+          {:error, changeset} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{errors: format_errors(changeset)})
+        end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Record listening progress
   # POST /api/streams/:stream_id/progress
   #
@@ -217,10 +263,16 @@ defmodule PodWeb.StreamController do
     storage = Application.get_env(:pod, :storage, [])
     base_url = Keyword.get(storage, :base_url, "")
 
+    # Manually uploaded recordings store the audio URL in archive_path;
+    # RTMP recordings derive the URL from the stream ID.
     master_url =
-      case Keyword.get(storage, :adapter) do
-        :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
-        _local -> "#{base_url}/#{stream.id}/master.m3u8"
+      case stream.archive_path do
+        url when is_binary(url) and url != "" -> url
+        _ ->
+          case Keyword.get(storage, :adapter) do
+            :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
+            _local -> "#{base_url}/#{stream.id}/master.m3u8"
+          end
       end
 
     creator = case stream.creator do
@@ -253,7 +305,8 @@ defmodule PodWeb.StreamController do
       creator_avatar:       creator && creator.avatar,
       duration_seconds:     stream.duration_seconds,
       segment_count:        stream.segment_count,
-      master_url:           master_url
+      master_url:           master_url,
+      download_url:         stream.download_url
     }
   end
 

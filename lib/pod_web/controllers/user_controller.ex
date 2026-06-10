@@ -173,9 +173,13 @@ defmodule PodWeb.UserController do
     base_url = Keyword.get(storage, :base_url, "")
 
     master_url =
-      case Keyword.get(storage, :adapter) do
-        :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
-        _local -> "#{base_url}/#{stream.id}/master.m3u8"
+      case stream.archive_path do
+        url when is_binary(url) and url != "" -> url
+        _ ->
+          case Keyword.get(storage, :adapter) do
+            :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
+            _local -> "#{base_url}/#{stream.id}/master.m3u8"
+          end
       end
 
     creator =
@@ -201,7 +205,8 @@ defmodule PodWeb.UserController do
       creator_name:      creator && creator.name,
       creator_avatar:    creator && creator.avatar,
       peak_viewers:      stream.peak_viewers,
-      master_url:        master_url
+      master_url:        master_url,
+      download_url:      stream.download_url
     }
   end
 

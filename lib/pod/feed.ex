@@ -424,13 +424,21 @@ defmodule Pod.Feed do
 
   defp format_recording_item(stream, storage) do
     creator = loaded_creator(stream.creator)
+
+    effective_master_url =
+      case stream.archive_path do
+        url when is_binary(url) and url != "" -> url
+        _ -> master_url(stream.id, storage)
+      end
+
     %{
       id:               stream.id,
       title:            stream.title,
       creator_name:     creator && creator.name,
       creator_id:       stream.creator_id,
       thumbnail_url:    stream.thumbnail,
-      master_url:       master_url(stream.id, storage),
+      master_url:       effective_master_url,
+      download_url:     stream.download_url,
       duration_seconds: stream.duration_seconds,
       published_at:     stream.end_time
     }

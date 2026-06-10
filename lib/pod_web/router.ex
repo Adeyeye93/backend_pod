@@ -172,6 +172,10 @@ defmodule PodWeb.Router do
 
     # Uploads
     post "/uploads/thumbnail_presign", UploadController, :thumbnail_presign
+    post "/uploads/audio_presign",     UploadController, :audio_presign
+
+    # Manual recording creation
+    post "/recordings", StreamController, :create_recording
 
     # Stream management
     post "/streams/create", StreamController, :create

@@ -108,8 +108,27 @@ defmodule Pod.Stream do
       |> Map.put("status", "ended")
       |> Map.put("end_time", DateTime.utc_now() |> DateTime.truncate(:second))
 
+    case stream |> LiveStream.end_stream_changeset(final_attrs) |> Repo.update() do
+      {:ok, _updated} = ok ->
+        # Schedule audio packaging 5 minutes after ending, giving the Segmenter
+        # time to flush all HLS segments before FFmpeg reads the playlist.
+        # Unique within 10 minutes so duplicate end_stream calls don't double-queue.
+        if stream.record_stream do
+          %{stream_id: stream.id}
+          |> Pod.Workers.AudioPackagingWorker.new(schedule_in: 300)
+          |> Oban.insert()
+        end
+
+        ok
+
+      error ->
+        error
+    end
+  end
+
+  def update_download_url(%LiveStream{} = stream, download_url) do
     stream
-    |> LiveStream.end_stream_changeset(final_attrs)
+    |> LiveStream.packaging_changeset(%{download_url: download_url})
     |> Repo.update()
   end
 
@@ -152,6 +171,37 @@ defmodule Pod.Stream do
     |> preload(:creator)
     |> order_by([s], desc: s.inserted_at)
     |> Repo.all()
+  end
+
+  @doc """
+  Creates a manually-uploaded recording (no RTMP, no scheduling).
+  Caller must supply creator_id and channel_id.
+  archive_path stores the uploaded audio URL.
+  """
+  def create_recording(attrs) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    base = %{
+      "status"            => "ended",
+      "record_stream"     => true,
+      "actual_start_time" => now,
+      "end_time"          => now
+    }
+
+    # For manually uploaded audio, archive_path is a direct audio file —
+    # it's immediately usable for offline download without any post-processing.
+    merged =
+      Map.merge(base, attrs)
+      |> then(fn a ->
+        case Map.get(a, "archive_path") do
+          url when is_binary(url) and url != "" -> Map.put_new(a, "download_url", url)
+          _ -> a
+        end
+      end)
+
+    %LiveStream{}
+    |> LiveStream.recording_changeset(merged)
+    |> Repo.insert()
   end
 
   @doc """
