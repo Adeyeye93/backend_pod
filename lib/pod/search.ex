@@ -14,7 +14,12 @@ defmodule Pod.Search do
     exact = String.downcase(query)
 
     LiveStream
-    |> where([s], s.status == "ended" and s.record_stream == true and s.is_private == false)
+    |> where([s],
+      s.status == "ended" and
+        s.record_stream == true and
+        s.is_private == false and
+        not is_nil(s.download_url)
+    )
     |> join(:inner, [s], c in Creator, on: c.id == s.creator_id)
     |> where(
       [s, c],

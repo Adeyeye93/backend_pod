@@ -93,19 +93,15 @@ defmodule PodWeb.StreamController do
   def my_streams(conn, _params) do
     user_id = get_user_id(conn)
 
-    case Creators.get_creator_by_user(user_id) do
-      nil ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "Creator profile not found"})
+    streams =
+      case Creators.get_creator_by_user(user_id) do
+        nil     -> []
+        creator -> Stream.list_streams_for_creator(creator.id)
+      end
 
-      creator ->
-        streams = Stream.list_streams_for_creator(creator.id)
-
-        conn
-        |> put_status(:ok)
-        |> json(%{streams: Enum.map(streams, &format_stream/1)})
-    end
+    conn
+    |> put_status(:ok)
+    |> json(%{streams: Enum.map(streams, &format_stream/1)})
   end
 
   # ---------------------------------------------------------------------------
@@ -263,16 +259,16 @@ defmodule PodWeb.StreamController do
     storage = Application.get_env(:pod, :storage, [])
     base_url = Keyword.get(storage, :base_url, "")
 
-    # Manually uploaded recordings store the audio URL in archive_path;
-    # RTMP recordings derive the URL from the stream ID.
+    # Ended recordings are served as a packaged MP3 (download_url — set once FFmpeg
+    # finishes). Live/scheduled streams use the HLS manifest for real-time playback.
     master_url =
-      case stream.archive_path do
-        url when is_binary(url) and url != "" -> url
-        _ ->
-          case Keyword.get(storage, :adapter) do
-            :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
-            _local -> "#{base_url}/#{stream.id}/master.m3u8"
-          end
+      if stream.status == "ended" do
+        stream.download_url
+      else
+        case Keyword.get(storage, :adapter) do
+          :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
+          _local -> "#{base_url}/#{stream.id}/master.m3u8"
+        end
       end
 
     creator = case stream.creator do

@@ -5,7 +5,12 @@ defmodule Pod.Playlists do
 
   def list_playlist(user_id, playlist_type) do
     UserPlaylist
-    |> where([p], p.user_id == ^user_id and p.playlist_type == ^playlist_type)
+    |> join(:inner, [p], s in assoc(p, :live_stream))
+    |> where([p, s],
+      p.user_id == ^user_id and
+        p.playlist_type == ^playlist_type and
+        not is_nil(s.download_url)
+    )
     |> order_by([p], desc: p.inserted_at)
     |> preload([_p], [live_stream: :creator])
     |> Repo.all()

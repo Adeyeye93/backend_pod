@@ -16,7 +16,7 @@ defmodule PodWeb.Endpoint do
     longpoll: [connect_info: [session: @session_options]]
 
   socket "/socket", PodWeb.ChannelSocket,
-      websocket: true,
+      websocket: [check_origin: false],
       longpoll: false
 
 

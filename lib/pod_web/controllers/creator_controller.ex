@@ -382,24 +382,11 @@ defmodule PodWeb.CreatorController do
   end
 
   defp format_recording_summary(stream) do
-    storage  = Application.get_env(:pod, :storage, [])
-    base_url = Keyword.get(storage, :base_url, "")
-
-    master_url =
-      case stream.archive_path do
-        url when is_binary(url) and url != "" -> url
-        _ ->
-          case Keyword.get(storage, :adapter) do
-            :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
-            _local -> "#{base_url}/#{stream.id}/master.m3u8"
-          end
-      end
-
     %{
       id:               stream.id,
       title:            stream.title,
       thumbnail_url:    stream.thumbnail,
-      master_url:       master_url,
+      master_url:       stream.download_url,
       download_url:     stream.download_url,
       duration_seconds: stream.duration_seconds,
       published_at:     stream.end_time

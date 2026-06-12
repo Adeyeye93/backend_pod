@@ -212,7 +212,8 @@ defmodule Pod.Stream do
     |> where([s],
       s.creator_id == ^creator_id and
         s.status == "ended" and
-        s.record_stream == true
+        s.record_stream == true and
+        not is_nil(s.download_url)
     )
     |> Repo.aggregate(:count)
   end
@@ -226,7 +227,8 @@ defmodule Pod.Stream do
       s.creator_id == ^creator_id and
         s.status == "ended" and
         s.record_stream == true and
-        s.is_private == false
+        s.is_private == false and
+        not is_nil(s.download_url)
     )
     |> order_by([s], desc: s.end_time)
     |> Repo.all()
@@ -237,7 +239,12 @@ defmodule Pod.Stream do
   """
   def list_recorded_streams do
     LiveStream
-    |> where([s], s.status == "ended" and s.record_stream == true and s.is_private == false)
+    |> where([s],
+      s.status == "ended" and
+        s.record_stream == true and
+        s.is_private == false and
+        not is_nil(s.download_url)
+    )
     |> preload(:creator)
     |> Repo.all()
   end

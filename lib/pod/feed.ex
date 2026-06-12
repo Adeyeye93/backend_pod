@@ -100,7 +100,12 @@ defmodule Pod.Feed do
 
   defp fetch_recordings(limit) do
     LiveStream
-    |> where([s], s.status == "ended" and s.record_stream == true and s.is_private == false)
+    |> where([s],
+      s.status == "ended" and
+        s.record_stream == true and
+        s.is_private == false and
+        not is_nil(s.download_url)
+    )
     |> preload(:creator)
     |> order_by([s], desc: s.end_time)
     |> limit(^limit)
@@ -113,11 +118,12 @@ defmodule Pod.Feed do
   defp fetch_followed_recordings(creator_ids, limit) do
     LiveStream
     |> where([s],
-        s.creator_id in ^creator_ids and
+      s.creator_id in ^creator_ids and
         s.status == "ended" and
         s.record_stream == true and
-        s.is_private == false
-       )
+        s.is_private == false and
+        not is_nil(s.download_url)
+    )
     |> preload(:creator)
     |> order_by([s], desc: s.end_time)
     |> limit(^limit)
@@ -126,7 +132,12 @@ defmodule Pod.Feed do
 
   defp fetch_suggestions(limit) do
     LiveStream
-    |> where([s], s.status == "ended" and s.record_stream == true and s.is_private == false)
+    |> where([s],
+      s.status == "ended" and
+        s.record_stream == true and
+        s.is_private == false and
+        not is_nil(s.download_url)
+    )
     |> preload(:creator)
     |> order_by([s], [desc: s.peak_viewers, desc: s.total_viewers])
     |> limit(^limit)
@@ -138,11 +149,12 @@ defmodule Pod.Feed do
   defp fetch_by_interests(names, limit) do
     LiveStream
     |> where([s],
-        s.status == "ended" and
+      s.status == "ended" and
         s.record_stream == true and
         s.is_private == false and
+        not is_nil(s.download_url) and
         s.category in ^names
-       )
+    )
     |> preload(:creator)
     |> order_by([s], desc: s.end_time)
     |> limit(^limit)
@@ -153,7 +165,12 @@ defmodule Pod.Feed do
 
   defp fetch_creator_streams(%Creator{id: creator_id}, limit) do
     LiveStream
-    |> where([s], s.creator_id == ^creator_id and s.status == "ended" and s.record_stream == true)
+    |> where([s],
+      s.creator_id == ^creator_id and
+        s.status == "ended" and
+        s.record_stream == true and
+        not is_nil(s.download_url)
+    )
     |> order_by([s], desc: s.end_time)
     |> limit(^limit)
     |> Repo.all()
@@ -161,7 +178,12 @@ defmodule Pod.Feed do
 
   defp fetch_trending(limit) do
     LiveStream
-    |> where([s], s.status == "ended" and s.record_stream == true and s.is_private == false)
+    |> where([s],
+      s.status == "ended" and
+        s.record_stream == true and
+        s.is_private == false and
+        not is_nil(s.download_url)
+    )
     |> preload(:creator)
     |> order_by([s], [desc: s.peak_viewers, desc: s.total_viewers])
     |> limit(^limit)
@@ -422,14 +444,8 @@ defmodule Pod.Feed do
     }
   end
 
-  defp format_recording_item(stream, storage) do
+  defp format_recording_item(stream, _storage) do
     creator = loaded_creator(stream.creator)
-
-    effective_master_url =
-      case stream.archive_path do
-        url when is_binary(url) and url != "" -> url
-        _ -> master_url(stream.id, storage)
-      end
 
     %{
       id:               stream.id,
@@ -437,7 +453,7 @@ defmodule Pod.Feed do
       creator_name:     creator && creator.name,
       creator_id:       stream.creator_id,
       thumbnail_url:    stream.thumbnail,
-      master_url:       effective_master_url,
+      master_url:       stream.download_url,
       download_url:     stream.download_url,
       duration_seconds: stream.duration_seconds,
       published_at:     stream.end_time

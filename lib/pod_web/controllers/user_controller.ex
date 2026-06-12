@@ -169,19 +169,6 @@ defmodule PodWeb.UserController do
   end
 
   defp format_recording(stream) do
-    storage  = Application.get_env(:pod, :storage, [])
-    base_url = Keyword.get(storage, :base_url, "")
-
-    master_url =
-      case stream.archive_path do
-        url when is_binary(url) and url != "" -> url
-        _ ->
-          case Keyword.get(storage, :adapter) do
-            :s3    -> "#{base_url}/broadcasters/#{stream.id}/master.m3u8"
-            _local -> "#{base_url}/#{stream.id}/master.m3u8"
-          end
-      end
-
     creator =
       case stream.creator do
         %Ecto.Association.NotLoaded{} -> nil
@@ -205,7 +192,7 @@ defmodule PodWeb.UserController do
       creator_name:      creator && creator.name,
       creator_avatar:    creator && creator.avatar,
       peak_viewers:      stream.peak_viewers,
-      master_url:        master_url,
+      master_url:        stream.download_url,
       download_url:      stream.download_url
     }
   end

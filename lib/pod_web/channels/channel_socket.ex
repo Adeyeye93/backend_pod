@@ -23,7 +23,7 @@ defmodule PodWeb.ChannelSocket do
 
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) do
-    case Guardian.decode_and_verify(token) do
+    case Guardian.decode_and_verify(token, %{"typ" => "access"}) do
       {:ok, claims} ->
         user_id = claims["sub"]
         Logger.debug("[ChannelSocket] Authenticated connection for user: #{user_id}")
