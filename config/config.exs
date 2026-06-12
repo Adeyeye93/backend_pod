@@ -56,6 +56,10 @@ config :logger, :default_formatter,
 
 config :pod, Oban,
   repo: Pod.Repo,
+  # PG notifier uses Elixir process groups (:pg) instead of a separate
+  # Postgres LISTEN/NOTIFY connection — no extra DB credentials needed.
+  # Correct choice for single-node deployments.
+  notifier: Oban.Notifiers.PG,
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
   ],
