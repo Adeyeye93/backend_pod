@@ -180,6 +180,14 @@ defmodule PodWeb.StreamChannel do
   end
 
   @doc """
+  Called by Segmenter.finalise when the broadcast ends (RTMP disconnect or crash).
+  Ensures listeners always receive stream_ended regardless of how the stream stopped.
+  """
+  def notify_stream_ended(stream_id) do
+    PodWeb.Endpoint.broadcast("stream:#{stream_id}", "stream_ended", %{stream_id: stream_id})
+  end
+
+  @doc """
   Called when a guest invite is accepted — notifies the host's client.
   """
   def notify_guest_accepted(stream_id, guest_creator) do

@@ -47,6 +47,8 @@ defmodule PodWeb.StreamController do
   # ---------------------------------------------------------------------------
 
   def show(conn, %{"id" => id}) do
+    user = Guardian.Plug.current_resource(conn)
+
     case Stream.get_stream(id) do
       nil ->
         conn
@@ -54,9 +56,19 @@ defmodule PodWeb.StreamController do
         |> json(%{error: "Stream not found"})
 
       stream ->
+        progress_seconds =
+          if user && stream.status == "ended" do
+            case ListeningHistory.get_progress(user.id, id) do
+              nil -> 0
+              h   -> h.progress_seconds
+            end
+          else
+            0
+          end
+
         conn
         |> put_status(:ok)
-        |> json(%{stream: format_stream(stream)})
+        |> json(%{stream: Map.put(format_stream(stream), :progress_seconds, progress_seconds)})
     end
   end
   # ---------------------------------------------------------------------------
@@ -226,7 +238,14 @@ defmodule PodWeb.StreamController do
     progress_seconds = Map.get(params, "progress_seconds", 0)
     completed        = Map.get(params, "completed", false)
 
-    case ListeningHistory.record_progress(user_id, stream_id, progress_seconds, completed) do
+    # When the mobile marks the episode as done, reset progress to 0 so it
+    # disappears from "Continue Listening" — it won't re-appear until replayed.
+    {final_progress, final_completed} =
+      if completed == true or completed == "true",
+        do:   {0, true},
+        else: {progress_seconds, false}
+
+    case ListeningHistory.record_progress(user_id, stream_id, final_progress, final_completed) do
       {:ok, history} ->
         conn
         |> put_status(:ok)

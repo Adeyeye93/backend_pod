@@ -41,14 +41,32 @@ defmodule Pod.ListeningHistory do
     Repo.get_by(ListeningHistory, user_id: user_id, live_stream_id: live_stream_id)
   end
 
-  @doc "Returns recent listening history, ordered by last_listened_at desc."
+  @doc """
+  Returns recent in-progress recordings ordered by most recently played.
+  Excludes completed items (progress_seconds = 0) and recordings not yet packaged.
+  """
   def list_recent(user_id, limit \\ @recents_limit) do
     ListeningHistory
-    |> where([lh], lh.user_id == ^user_id)
+    |> join(:inner, [lh], s in assoc(lh, :live_stream))
+    |> where([lh, s],
+      lh.user_id == ^user_id and
+        lh.progress_seconds > 0 and
+        not is_nil(s.download_url)
+    )
     |> order_by([lh], desc: lh.last_listened_at)
     |> limit(^limit)
     |> preload(live_stream: :creator)
     |> Repo.all()
+  end
+
+  @doc "Returns a map of %{live_stream_id => progress_seconds} for the given user and stream IDs."
+  def get_progress_map(_user_id, []), do: %{}
+  def get_progress_map(user_id, stream_ids) do
+    ListeningHistory
+    |> where([lh], lh.user_id == ^user_id and lh.live_stream_id in ^stream_ids)
+    |> select([lh], {lh.live_stream_id, lh.progress_seconds})
+    |> Repo.all()
+    |> Map.new()
   end
 
   @doc "Returns the most recently listened-to session timestamp, or nil."

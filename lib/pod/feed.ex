@@ -232,9 +232,8 @@ defmodule Pod.Feed do
   end
 
   defp recents_section([], _recent?, _storage), do: nil
-  defp recents_section(_, false, _storage), do: nil
 
-  defp recents_section(histories, _recent?, storage) do
+  defp recents_section(histories, _recent?, _storage) do
     items =
       Enum.map(histories, fn h ->
         s = h.live_stream
@@ -245,7 +244,8 @@ defmodule Pod.Feed do
           title:            s.title,
           creator_name:     creator && creator.name,
           thumbnail_url:    s.thumbnail,
-          master_url:       master_url(s.id, storage),
+          master_url:       s.download_url,
+          download_url:     s.download_url,
           duration_seconds: s.duration_seconds,
           progress_seconds: h.progress_seconds
         }

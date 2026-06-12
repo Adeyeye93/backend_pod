@@ -142,6 +142,13 @@ defmodule PodWeb.Router do
     post "/creators/:creator_id/follow", CreatorController, :follow
     delete "/creators/:creator_id/follow", CreatorController, :unfollow
 
+    # Custom playlists
+    get    "/playlists",                                  CustomPlaylistController, :index
+    post   "/playlists",                                  CustomPlaylistController, :create
+    delete "/playlists/:id",                              CustomPlaylistController, :delete
+    post   "/playlists/:id/recordings",                   CustomPlaylistController, :add_recording
+    delete "/playlists/:id/recordings/:recording_id",     CustomPlaylistController, :remove_recording
+
     # Feed
     get "/feed/home",          FeedController, :home
     get "/feed/listening-now", FeedController, :listening_now

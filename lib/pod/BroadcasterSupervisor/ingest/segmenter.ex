@@ -220,7 +220,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
           "archive_path"     => archive_path,
           "duration_seconds" => duration_seconds
         })
-        PodWeb.FeedChannel.stream_ended(state.live_stream_id) # Broadcast to feed channel so listeners see it immediately
+        PodWeb.FeedChannel.stream_ended(state.live_stream_id)
+        StreamChannel.notify_stream_ended(state.live_stream_id)
 
         Logger.info("[Segmenter] ✓ Archive finalised — #{state.segment_count} segments, " <>
           "#{duration_seconds}s, path: #{archive_path}")
@@ -326,7 +327,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
 
     request =
       ExAws.S3.put_object(bucket, path, data_binary,
-        content_type: content_type
+        content_type: content_type,
+        acl: :public_read
       )
 
     case ExAws.request(request) do
@@ -384,14 +386,10 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
       url =
         case storage.adapter do
           :local ->
-            # In dev, Phoenix serves files from priv/static
-            # You will need to symlink or serve priv/segments via Plug.Static
             "/segments/#{live_stream_id}/#{kbps}k/#{segment_name}"
 
           :s3 ->
-            bucket = storage.bucket
-            region = Application.get_env(:ex_aws, :region, "us-east-1")
-            "https://#{bucket}.s3.#{region}.amazonaws.com/broadcasters/#{live_stream_id}/#{kbps}k/#{segment_name}"
+            "#{storage.base_url}/broadcasters/#{live_stream_id}/#{kbps}k/#{segment_name}"
         end
 
       {kbps, url}
@@ -402,9 +400,10 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
     config = Application.get_env(:pod, :storage, adapter: :local, local_path: "priv/segments")
 
     %{
-      adapter: config[:adapter] || :local,
+      adapter:    config[:adapter]    || :local,
       local_path: config[:local_path] || "priv/segments",
-      bucket: config[:bucket]
+      bucket:     config[:bucket],
+      base_url:   config[:base_url]   || ""
     }
   end
 end
