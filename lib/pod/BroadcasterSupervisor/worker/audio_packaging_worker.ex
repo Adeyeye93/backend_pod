@@ -16,7 +16,7 @@ defmodule Pod.Workers.AudioPackagingWorker do
   use Oban.Worker,
     queue: :default,
     max_attempts: 3,
-    unique: [period: 600, fields: [:args]]
+    unique: [period: 600, fields: [:args, :worker]]
 
   require Logger
 

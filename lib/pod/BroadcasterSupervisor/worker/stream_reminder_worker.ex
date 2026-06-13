@@ -2,7 +2,7 @@ defmodule Pod.BroadcasterSupervisor.Worker.StreamReminderWorker do
   use Oban.Worker,
     queue: :streams,
     max_attempts: 3,
-    unique: [period: 60, fields: [:args]]
+    unique: [period: 60, fields: [:args, :worker]]
 
   alias Pod.Stream
   alias Pod.Accounts

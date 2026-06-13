@@ -2,7 +2,7 @@ defmodule Pod.BroadcasterSupervisor.Worker.StreamStartWorker do
   use Oban.Worker,
   queue: :streams,
   max_attempts: 5,
-  unique: [period: 300, fields: [:args]]
+  unique: [period: 300, fields: [:args, :worker]]
 
   alias Pod.Stream
   require Logger
