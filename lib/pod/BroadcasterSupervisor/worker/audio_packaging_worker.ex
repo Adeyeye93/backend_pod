@@ -2,8 +2,9 @@ defmodule Pod.Workers.AudioPackagingWorker do
   @moduledoc """
   Oban worker that converts a saved HLS recording into a single downloadable MP3.
 
-  Triggered 5 minutes after a live stream ends (delay lets the Segmenter finish
-  flushing all segments before FFmpeg reads the playlist).
+  Triggered 30 seconds after a live stream ends. By the time Segmenter.finalise
+  runs, all segments are already in S3 (GenServer cast ordering guarantees this),
+  so the delay is just a small buffer for S3 eventual consistency.
 
   Unique per stream_id within a 10-minute window, so duplicate enqueues from
   multiple end_stream callers are de-duplicated automatically.
