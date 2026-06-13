@@ -327,8 +327,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
 
     request =
       ExAws.S3.put_object(bucket, path, data_binary,
-        content_type: content_type,
-        acl: :public_read
+        content_type: content_type
       )
 
     case ExAws.request(request) do
