@@ -109,20 +109,35 @@ defmodule Pod.Stream do
       |> Map.put("end_time", DateTime.utc_now() |> DateTime.truncate(:second))
 
     case stream |> LiveStream.end_stream_changeset(final_attrs) |> Repo.update() do
-      {:ok, _updated} = ok ->
-        # Schedule audio packaging 5 minutes after ending, giving the Segmenter
+      {:ok, updated} = ok ->
         # All segments are in S3 by the time finalise completes (GenServer cast ordering).
         # 30s buffer is enough for S3 eventual consistency before FFmpeg reads the playlist.
         # Unique within 10 minutes so duplicate end_stream calls don't double-queue.
         if stream.record_stream do
-          %{stream_id: stream.id}
-          |> Pod.Workers.AudioPackagingWorker.new(schedule_in: 30)
-          |> Oban.insert()
+          result =
+            %{stream_id: stream.id}
+            |> Pod.Workers.AudioPackagingWorker.new(schedule_in: 30)
+            |> Oban.insert()
+
+          case result do
+            {:ok, job} ->
+              require Logger
+              Logger.info("[Stream] AudioPackagingWorker enqueued — stream: #{stream.id}, job_id: #{job.id}, conflict: #{job.conflict?}")
+
+            {:error, reason} ->
+              require Logger
+              Logger.error("[Stream] Failed to enqueue AudioPackagingWorker — stream: #{stream.id}, reason: #{inspect(reason)}")
+          end
+        else
+          require Logger
+          Logger.info("[Stream] Skipping AudioPackagingWorker — stream: #{stream.id}, record_stream: #{inspect(stream.record_stream)}")
         end
 
-        ok
+        {:ok, updated}
 
-      error ->
+      {:error, changeset} = error ->
+        require Logger
+        Logger.error("[Stream] end_stream DB update failed — stream: #{stream.id}, errors: #{inspect(changeset.errors)}")
         error
     end
   end

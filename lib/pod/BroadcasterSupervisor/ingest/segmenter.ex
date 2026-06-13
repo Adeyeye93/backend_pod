@@ -215,16 +215,21 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
         Logger.warning("[Segmenter] Could not find stream #{state.live_stream_id} to finalise")
 
       live_stream ->
-        Stream.end_stream(live_stream, %{
+        case Stream.end_stream(live_stream, %{
           "segment_count"    => state.segment_count,
           "archive_path"     => archive_path,
           "duration_seconds" => duration_seconds
-        })
+        }) do
+          {:ok, _} ->
+            Logger.info("[Segmenter] ✓ Archive finalised — #{state.segment_count} segments, " <>
+              "#{duration_seconds}s, path: #{archive_path}")
+
+          {:error, reason} ->
+            Logger.error("[Segmenter] end_stream failed — stream: #{state.live_stream_id}, reason: #{inspect(reason)}")
+        end
+
         PodWeb.FeedChannel.stream_ended(state.live_stream_id)
         StreamChannel.notify_stream_ended(state.live_stream_id)
-
-        Logger.info("[Segmenter] ✓ Archive finalised — #{state.segment_count} segments, " <>
-          "#{duration_seconds}s, path: #{archive_path}")
     end
 
     {:noreply, state}
