@@ -66,6 +66,7 @@ defmodule Pod.MixProject do
       {:ex_aws, "~> 2.6"},
       {:ex_aws_s3, "~> 2.5"},
       {:oban, "~> 2.19"},
+      {:sweet_xml, "~> 0.7"},
       {:igniter, "~> 0.5", only: [:dev]}
     ]
   end
