@@ -88,7 +88,11 @@ defmodule Pod.Workers.AudioPackagingWorker do
       ]
 
       case System.cmd("ffmpeg", ffmpeg_args, stderr_to_stdout: true, cd: tmp_dir) do
-        {_out, 0} ->
+        {out, 0} ->
+          # Log the tail of FFmpeg output — shows how much audio was processed,
+          # how many segments were read, and the final duration. Invaluable for
+          # diagnosing truncation without a full debug session.
+          Logger.info("[AudioPackaging] FFmpeg success for #{stream.id}:\n#{String.slice(out, -800, 800)}")
           upload_and_save(stream, output_path, storage)
 
         {out, code} ->

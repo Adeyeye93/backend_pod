@@ -29,8 +29,12 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Transcoder do
 
   The `reply_to` process receives:
 
-      {:transcoded, {:ok, %{128 => binary, 192 => binary, 320 => binary}}}
+      {:transcoded, {:ok, frame_count, %{128 => binary, 192 => binary, 320 => binary}}}
       {:transcoded, {:error, reason}}
+
+  `frame_count` is the actual number of AAC frames in this dispatch — may be
+  less than 3 when Season's flush_timeout drains a partial buffer. The Segmenter
+  uses this count to track accumulated frames accurately.
   """
 
   use GenServer
@@ -38,8 +42,6 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Transcoder do
   import Bitwise
 
   alias Pod.BroadcasterSupervisor.Ingest.TranscoderPool
-
-  @bitrates [128, 192, 320]
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -143,10 +145,11 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Transcoder do
   # ---------------------------------------------------------------------------
 
   defp run_all_bitrates(frames, aac_config) do
+    frame_count = length(frames)
     adts_binary = wrap_frames_in_adts(frames, aac_config)
-    Logger.debug("[Transcoder] ADTS passthrough — #{byte_size(adts_binary)} bytes, #{length(frames)} frames")
+    Logger.debug("[Transcoder] ADTS passthrough — #{byte_size(adts_binary)} bytes, #{frame_count} frames")
     # Return the same native-bitrate ADTS binary for all quality slots.
     # Quality re-encoding happens once in AudioPackagingWorker (HLS → MP3).
-    {:ok, %{128 => adts_binary, 192 => adts_binary, 320 => adts_binary}}
+    {:ok, frame_count, %{128 => adts_binary, 192 => adts_binary, 320 => adts_binary}}
   end
 end

@@ -16,7 +16,7 @@ defmodule Pod.BroadcasterSupervisor do
   transcoded results with no Segmenter to receive them.
 
   Season and Segmenter share the live_stream_id. Season passes it to
-  Segmenter when a segment is ready via Segmenter.write_segment/3.
+  Segmenter when a segment is ready via Segmenter.write_segment/4.
   """
 
   use DynamicSupervisor

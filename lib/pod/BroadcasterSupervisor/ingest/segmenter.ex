@@ -20,10 +20,13 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   ## Timing constants
 
     - @samples_per_aac_frame  1024          (AAC standard)
-    - @frames_per_dispatch    3             (AudioBuffer max_frames)
     - @default_sample_rate    48 000 Hz     (from AAC config, sample_rate_index: 3)
-    - @frames_per_segment     141 frames    (≈ 3.008 s — 47 dispatches exactly)
+    - @frames_per_segment     141 frames    (≈ 3.008 s — 47 full dispatches of 3)
     - @target_duration        4             (#EXT-X-TARGETDURATION, ceil of 3.008)
+
+  The Transcoder passes the actual frame count per dispatch (normally 3, but can
+  be 1–2 from Season's flush_timeout on a partial buffer). accumulated_frames
+  tracks the real count so #EXTINF values match actual audio content.
 
   ## Storage structure
 
@@ -55,7 +58,6 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
 
   # AAC audio timing
   @samples_per_aac_frame 1024
-  @frames_per_dispatch   3          # must match AudioBuffer max_frames
   @default_sample_rate   48_000
 
   # Target HLS segment duration
@@ -79,12 +81,13 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   end
 
   @doc """
-  Called from Season.handle_info({:transcoded, {:ok, segments}}).
+  Called from Season.handle_info({:transcoded, {:ok, frame_count, segments}}).
 
-  segments = %{128 => <<binary>>, 192 => <<binary>>, 320 => <<binary>>}
+  frame_count — actual AAC frames in this dispatch (1–3; may be < 3 from flush_timeout)
+  segments    — %{128 => <<binary>>, 192 => <<binary>>, 320 => <<binary>>}
   """
-  def write_segment(pid, live_stream_id, segments) do
-    GenServer.cast(pid, {:write_segment, live_stream_id, segments})
+  def write_segment(pid, live_stream_id, frame_count, segments) do
+    GenServer.cast(pid, {:write_segment, live_stream_id, frame_count, segments})
   end
 
   @doc """
@@ -132,7 +135,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def handle_cast({:write_segment, live_stream_id, segments}, state) do
+  def handle_cast({:write_segment, live_stream_id, frame_count, segments}, state) do
     state =
       if is_nil(state.live_stream_id) do
         Logger.info("[Segmenter] First dispatch — live_stream_id: #{live_stream_id}")
@@ -168,7 +171,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
         end
       end)
 
-    new_accumulated_frames = state.accumulated_frames + @frames_per_dispatch
+    new_accumulated_frames = state.accumulated_frames + frame_count
 
     state = %{state | accumulator: new_accumulator, accumulated_frames: new_accumulated_frames}
 
@@ -195,7 +198,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
 
   @impl true
   def handle_cast(:finalise, state) do
-    Logger.info("[Segmenter] Finalising archive for stream #{state.live_stream_id}")
+    Logger.info("[Segmenter] Finalising archive for stream #{state.live_stream_id} — " <>
+      "#{state.segment_count} segments written, #{state.accumulated_frames} frames in partial buffer")
 
     # Flush any partial segment remaining in the accumulator
     state =
@@ -205,6 +209,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
       else
         state
       end
+
+    Logger.info("[Segmenter] Archive will include #{length(state.all_segments)} segments total")
 
     Enum.each(@bitrates, fn kbps ->
       write_archive_playlist(state.live_stream_id, kbps, state.all_segments, state.storage)

@@ -25,7 +25,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
         → TranscoderPool.checkout/0
           → Transcoder.transcode/4 (async cast)
             → {:transcoded, result} arrives in handle_info
-              → Segmenter.write_segment/2
+              → Segmenter.write_segment/4
   """
 
   use GenServer
@@ -162,12 +162,12 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def handle_info({:transcoded, {:ok, segments}}, state) do
+  def handle_info({:transcoded, {:ok, frame_count, segments}}, state) do
     # segments = %{128 => <<binary>>, 192 => <<binary>>, 320 => <<binary>>}
     if state.live_stream_id do
       case lookup_segmenter(state.session_id) do
         {:ok, segmenter_pid} ->
-          Ingest.Segmenter.write_segment(segmenter_pid, state.live_stream_id, segments)
+          Ingest.Segmenter.write_segment(segmenter_pid, state.live_stream_id, frame_count, segments)
         {:error, :not_found} ->
           Logger.warning("[Season] Segmenter not found for session #{state.session_id} — dropping segments")
       end
@@ -200,6 +200,13 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
 
     if state.flush_timer, do: Process.cancel_timer(state.flush_timer)
 
+    # GenServer does not process remaining mailbox messages after {:stop} is
+    # returned. Any {:transcoded, result} messages sent by Transcoder workers
+    # just before disconnect would be silently lost without this drain, causing
+    # the Segmenter to miss the last batch of audio before finalise.
+    # ADTS passthrough completes in <1ms so 200ms is more than enough headroom.
+    drain_transcoded_mailbox(state)
+
     # Tell Segmenter to finalise the archive — writes #EXT-X-ENDLIST
     # and updates the LiveStream DB record with final stats.
     # Segmenter handles the DB end_stream call so we don't do it here.
@@ -218,6 +225,24 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
     end
 
     :ok
+  end
+
+  defp drain_transcoded_mailbox(state) do
+    receive do
+      {:transcoded, {:ok, frame_count, segments}} ->
+        if state.live_stream_id do
+          case lookup_segmenter(state.session_id) do
+            {:ok, segmenter_pid} ->
+              Ingest.Segmenter.write_segment(segmenter_pid, state.live_stream_id, frame_count, segments)
+            _ ->
+              :ok
+          end
+        end
+
+        drain_transcoded_mailbox(state)
+    after
+      200 -> :ok
+    end
   end
 
   # ---------------------------------------------------------------------------
