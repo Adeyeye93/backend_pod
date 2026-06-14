@@ -124,7 +124,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
       # Accumulation buffer — holds binary data across dispatches until a
       # full target-duration segment is ready to write.
       accumulator:         %{},      # %{kbps => binary}
-      accumulated_frames:  0         # AAC frames in accumulator
+      accumulated_frames:  0,        # AAC frames in accumulator (resets on flush)
+      total_received:      0         # cumulative frames received (never resets — used for diagnostics)
     }
 
     {:ok, state}
@@ -172,8 +173,17 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
       end)
 
     new_accumulated_frames = state.accumulated_frames + frame_count
+    new_total_received     = state.total_received + frame_count
 
-    state = %{state | accumulator: new_accumulator, accumulated_frames: new_accumulated_frames}
+    Logger.debug("[Segmenter] Dispatch +#{frame_count} frames | " <>
+      "buffer: #{new_accumulated_frames}/#{@frames_per_segment} | " <>
+      "total_received: #{new_total_received}")
+
+    state = %{state |
+      accumulator:        new_accumulator,
+      accumulated_frames: new_accumulated_frames,
+      total_received:     new_total_received
+    }
 
     # Flush a full segment when we have enough frames
     state =
@@ -246,6 +256,16 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
         StreamChannel.notify_stream_ended(state.live_stream_id)
     end
 
+    frames_written =
+      state.all_segments
+      |> Enum.reduce(0.0, fn %{duration: d}, acc -> acc + d * @default_sample_rate / @samples_per_aac_frame end)
+      |> round()
+
+    Logger.info("[Segmenter] ACCOUNTING — total_received: #{state.total_received} frames | " <>
+      "frames_written: #{frames_written} frames across #{length(state.all_segments)} segments | " <>
+      "delta (lost): #{state.total_received - frames_written} frames " <>
+      "(#{Float.round((state.total_received - frames_written) * @samples_per_aac_frame / @default_sample_rate, 1)}s)")
+
     {:noreply, state}
   end
 
@@ -263,7 +283,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
       3
     )
 
-    Logger.info("[Segmenter] Writing segment #{segment_number} (#{duration}s) for #{state.live_stream_id}")
+    Logger.info("[Segmenter] Writing segment #{segment_number} — #{state.accumulated_frames} frames → #{duration}s " <>
+      "(total_received so far: #{state.total_received})")
 
     Enum.each(@bitrates, fn kbps ->
       case Map.get(state.accumulator, kbps) do
