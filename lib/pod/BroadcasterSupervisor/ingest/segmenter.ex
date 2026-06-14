@@ -2,53 +2,47 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   @moduledoc """
   One GenServer per active broadcaster session.
 
-  Receives transcoded audio segments from Season and is responsible for:
+  Receives transcoded audio dispatches from Season and accumulates them into
+  proper HLS segments before writing to storage.
 
-    1. Writing segment files — one per bitrate (128k, 192k, 320k) per flush
-    2. Maintaining the live rolling HLS playlist — last 6 segments so
-       listeners always have a valid window to join from
-    3. Writing the master playlist once on first segment — points to the
-       three bitrate playlists
-    4. Uploading everything to S3 in production — local disk in dev
-    5. Finalising the archive on broadcast end — adds #EXT-X-ENDLIST tag
-       so the full recording is playable as a podcast/replay
-    6. Updating the LiveStream record in the database when the broadcast ends
+  ## Why accumulation is necessary
+
+  The AudioBuffer flushes every 3 AAC frames. Each AAC frame = 1024 samples,
+  so at 48 000 Hz each dispatch carries only ~64 ms of audio. Writing one
+  segment file per dispatch would produce #EXTINF:3.0 entries in the playlist
+  that claim 3 s of audio but actually contain 64 ms — causing FFmpeg to
+  produce ~20 s of audio from a 12-minute stream.
+
+  Instead, dispatches are accumulated in memory until enough frames exist for
+  a real target-duration segment, then flushed as a single file. The partial
+  segment at the end of a broadcast is flushed on finalise.
+
+  ## Timing constants
+
+    - @samples_per_aac_frame  1024          (AAC standard)
+    - @frames_per_dispatch    3             (AudioBuffer max_frames)
+    - @default_sample_rate    48 000 Hz     (from AAC config, sample_rate_index: 3)
+    - @frames_per_segment     141 frames    (≈ 3.008 s — 47 dispatches exactly)
+    - @target_duration        4             (#EXT-X-TARGETDURATION, ceil of 3.008)
 
   ## Storage structure
 
   Local (dev):
     priv/segments/{live_stream_id}/
       master.m3u8
-      128k.m3u8
-      192k.m3u8
-      320k.m3u8
-      128k/segment_001.aac
-      192k/segment_001.aac
-      320k/segment_001.aac
+      128k.m3u8 / 192k.m3u8 / 320k.m3u8
+      128k/segment_000001.aac  …
 
   S3 (production):
     broadcasters/{live_stream_id}/
       master.m3u8
-      128k.m3u8
-      192k.m3u8
-      320k.m3u8
-      128k/segment_001.aac
-      192k/segment_001.aac
-      320k/segment_001.aac
+      128k.m3u8 / 192k.m3u8 / 320k.m3u8
+      128k/segment_000001.aac  …
 
-  ## Segment naming
+  ## HLS rolling window
 
-  Segments are zero-padded 6-digit numbers: segment_000001.aac
-  This ensures correct lexicographic ordering if segments are ever
-  listed from a directory or S3 prefix.
-
-  ## HLS playlist rolling window
-
-  The live playlist keeps the last 6 segments — roughly 18 seconds of
-  audio at 3 seconds per segment. This gives a listener's player enough
-  buffer to join and start playing without the playlist growing forever.
-  Old segments are removed from the playlist but kept in storage for
-  the archive.
+  The live playlist keeps the last 6 complete segments (~18 s) so listeners
+  always have a valid buffer to join from.
   """
 
   use GenServer
@@ -58,7 +52,22 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   alias PodWeb.StreamChannel
 
   @bitrates [128, 192, 320]
-  @segment_duration 3
+
+  # AAC audio timing
+  @samples_per_aac_frame 1024
+  @frames_per_dispatch   3          # must match AudioBuffer max_frames
+  @default_sample_rate   48_000
+
+  # Target HLS segment duration
+  @segment_duration 3               # seconds (used as target and for EXTINF rounding)
+
+  # Frames to accumulate before flushing one segment file.
+  # round(3 * 48000 / 1024) = round(141.17) = 141 = 47 dispatches exactly.
+  @frames_per_segment round(@segment_duration * @default_sample_rate / @samples_per_aac_frame)
+
+  # EXT-X-TARGETDURATION must be >= max EXTINF value (ceil of 3.008 = 4)
+  @target_duration ceil(@frames_per_segment * @samples_per_aac_frame / @default_sample_rate)
+
   @playlist_window 6
 
   # ---------------------------------------------------------------------------
@@ -80,7 +89,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
 
   @doc """
   Called from Season.terminate/2 when the broadcaster disconnects.
-  Finalises the archive playlist and updates the database record.
+  Flushes any buffered audio, finalises the archive playlist, and updates
+  the LiveStream DB record.
   """
   def finalise(pid) do
     GenServer.cast(pid, :finalise)
@@ -93,37 +103,39 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   @impl true
   def init(opts) do
     session_id = opts[:session_id]
-    storage = storage_config()
+    storage    = storage_config()
 
-    # Register so Season can look us up by session_id
     Registry.register(Pod.SessionRegistry, {session_id, :segmenter}, nil)
 
     Logger.info("[Segmenter] Starting — session: #{session_id}, adapter: #{storage.adapter}")
 
     state = %{
-      live_stream_id: nil,
-      session_id: session_id,
-      segment_count: 0,
-      playlist_window: [],
-      all_segments: [],
-      master_written: false,
-      storage: storage,
-      started_at: DateTime.utc_now()
+      live_stream_id:      nil,
+      session_id:          session_id,
+      segment_count:       0,        # segment files written (used for naming)
+      playlist_window:     [],
+      all_segments:        [],
+      master_written:      false,
+      storage:             storage,
+      started_at:          DateTime.utc_now(),
+      # Accumulation buffer — holds binary data across dispatches until a
+      # full target-duration segment is ready to write.
+      accumulator:         %{},      # %{kbps => binary}
+      accumulated_frames:  0         # AAC frames in accumulator
     }
 
     {:ok, state}
   end
 
   # ---------------------------------------------------------------------------
-  # Write segment
+  # Receive a transcoded dispatch — accumulate, flush when full
   # ---------------------------------------------------------------------------
 
   @impl true
   def handle_cast({:write_segment, live_stream_id, segments}, state) do
-    # live_stream_id arrives here on first segment — set it and create dirs
     state =
       if is_nil(state.live_stream_id) do
-        Logger.info("[Segmenter] First segment — live_stream_id: #{live_stream_id}")
+        Logger.info("[Segmenter] First dispatch — live_stream_id: #{live_stream_id}")
 
         if state.storage.adapter == :local do
           setup_local_dirs(live_stream_id, state.storage.local_path)
@@ -134,24 +146,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
         state
       end
 
-    segment_number = state.segment_count + 1
-    segment_name = segment_filename(segment_number)
-
-    Logger.info("[Segmenter] Writing segment #{segment_number} for stream #{state.live_stream_id}")
-
-    # Write all three bitrate files
-    Enum.each(@bitrates, fn kbps ->
-      case Map.get(segments, kbps) do
-        nil ->
-          Logger.warning("[Segmenter] Missing #{kbps}k segment for segment #{segment_number}")
-
-        data ->
-          path = segment_path(state.live_stream_id, kbps, segment_name, state.storage)
-          write_file(path, data, state.storage)
-      end
-    end)
-
-    # Write master playlist on the very first segment only
+    # Write master playlist on the very first dispatch
     state =
       if not state.master_written do
         write_master_playlist(state)
@@ -160,31 +155,32 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
         state
       end
 
-    # Update rolling window — add new, drop oldest if over limit
-    new_entry = %{name: segment_name, duration: @segment_duration}
+    # Append this dispatch's binary to the per-bitrate accumulator
+    new_accumulator =
+      Enum.reduce(@bitrates, state.accumulator, fn kbps, acc ->
+        case Map.get(segments, kbps) do
+          nil ->
+            Logger.warning("[Segmenter] Missing #{kbps}k data in dispatch for #{state.live_stream_id}")
+            acc
 
-    new_window =
-      (state.playlist_window ++ [new_entry])
-      |> Enum.take(-@playlist_window)
+          data ->
+            Map.update(acc, kbps, data, &(&1 <> data))
+        end
+      end)
 
-    all_segments = state.all_segments ++ [new_entry]
+    new_accumulated_frames = state.accumulated_frames + @frames_per_dispatch
 
-    # Update the live playlists for all three bitrates
-    Enum.each(@bitrates, fn kbps ->
-      write_live_playlist(state.live_stream_id, kbps, new_window, segment_number, state.storage)
-    end)
+    state = %{state | accumulator: new_accumulator, accumulated_frames: new_accumulated_frames}
 
-    # Notify all listeners via Phoenix Channel that a new segment is ready
-    segment_urls = build_segment_urls(state.live_stream_id, segment_name, state.storage)
-    StreamChannel.notify_segment_ready(state.live_stream_id, segment_number, segment_urls)
+    # Flush a full segment when we have enough frames
+    state =
+      if new_accumulated_frames >= @frames_per_segment do
+        flush_segment(state)
+      else
+        state
+      end
 
-    new_state = %{state |
-      segment_count: segment_number,
-      playlist_window: new_window,
-      all_segments: all_segments
-    }
-
-    {:noreply, new_state}
+    {:noreply, state}
   end
 
   # ---------------------------------------------------------------------------
@@ -193,9 +189,7 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
 
   @impl true
   def handle_cast(:finalise, %{live_stream_id: nil} = state) do
-    # Broadcaster disconnected before any segments were written —
-    # nothing to finalise, DB update is handled by Season.terminate directly
-    Logger.info("[Segmenter] Finalise called with no segments — skipping")
+    Logger.info("[Segmenter] Finalise called with no audio — skipping")
     {:noreply, state}
   end
 
@@ -203,16 +197,29 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   def handle_cast(:finalise, state) do
     Logger.info("[Segmenter] Finalising archive for stream #{state.live_stream_id}")
 
+    # Flush any partial segment remaining in the accumulator
+    state =
+      if state.accumulated_frames > 0 and map_size(state.accumulator) > 0 do
+        Logger.info("[Segmenter] Flushing partial final segment — #{state.accumulated_frames} frames")
+        flush_segment(state)
+      else
+        state
+      end
+
     Enum.each(@bitrates, fn kbps ->
       write_archive_playlist(state.live_stream_id, kbps, state.all_segments, state.storage)
     end)
 
-    duration_seconds = state.segment_count * @segment_duration
+    duration_seconds =
+      state.all_segments
+      |> Enum.reduce(0.0, fn %{duration: d}, acc -> acc + d end)
+      |> round()
+
     archive_path = master_playlist_path(state.live_stream_id, state.storage)
 
     case Stream.get_stream(state.live_stream_id) do
       nil ->
-        Logger.warning("[Segmenter] Could not find stream #{state.live_stream_id} to finalise")
+        Logger.warning("[Segmenter] Stream #{state.live_stream_id} not found for finalise")
 
       live_stream ->
         case Stream.end_stream(live_stream, %{
@@ -225,7 +232,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
               "#{duration_seconds}s, path: #{archive_path}")
 
           {:error, reason} ->
-            Logger.error("[Segmenter] end_stream failed — stream: #{state.live_stream_id}, reason: #{inspect(reason)}")
+            Logger.error("[Segmenter] end_stream failed — stream: #{state.live_stream_id}, " <>
+              "reason: #{inspect(reason)}")
         end
 
         PodWeb.FeedChannel.stream_ended(state.live_stream_id)
@@ -233,6 +241,53 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
     end
 
     {:noreply, state}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private — flush accumulated audio as one segment file
+  # ---------------------------------------------------------------------------
+
+  defp flush_segment(state) do
+    segment_number = state.segment_count + 1
+    segment_name   = segment_filename(segment_number)
+
+    # Actual duration from frame count — correct value for #EXTINF
+    duration = Float.round(
+      state.accumulated_frames * @samples_per_aac_frame / @default_sample_rate,
+      3
+    )
+
+    Logger.info("[Segmenter] Writing segment #{segment_number} (#{duration}s) for #{state.live_stream_id}")
+
+    Enum.each(@bitrates, fn kbps ->
+      case Map.get(state.accumulator, kbps) do
+        nil ->
+          Logger.warning("[Segmenter] No #{kbps}k data for segment #{segment_number}")
+
+        data ->
+          path = segment_path(state.live_stream_id, kbps, segment_name, state.storage)
+          write_file(path, data, state.storage)
+      end
+    end)
+
+    new_entry  = %{name: segment_name, duration: duration}
+    new_window = (state.playlist_window ++ [new_entry]) |> Enum.take(-@playlist_window)
+    all_segments = state.all_segments ++ [new_entry]
+
+    Enum.each(@bitrates, fn kbps ->
+      write_live_playlist(state.live_stream_id, kbps, new_window, segment_number, state.storage)
+    end)
+
+    segment_urls = build_segment_urls(state.live_stream_id, segment_name, state.storage)
+    StreamChannel.notify_segment_ready(state.live_stream_id, segment_number, segment_urls)
+
+    %{state |
+      segment_count:      segment_number,
+      playlist_window:    new_window,
+      all_segments:       all_segments,
+      accumulator:        %{},    # reset for next segment
+      accumulated_frames: 0
+    }
   end
 
   # ---------------------------------------------------------------------------
@@ -260,19 +315,17 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   end
 
   defp write_live_playlist(live_stream_id, kbps, window, media_sequence, storage) do
-    # media_sequence tells the player where in the overall stream this
-    # window starts. It increments as old segments roll off the window.
     sequence_start = max(0, media_sequence - @playlist_window)
 
     segments_content =
       Enum.map_join(window, "\n", fn %{name: name, duration: duration} ->
-        "#EXTINF:#{duration}.0,\n#{kbps}k/#{name}"
+        "#EXTINF:#{duration},\n#{kbps}k/#{name}"
       end)
 
     content = """
     #EXTM3U
     #EXT-X-VERSION:3
-    #EXT-X-TARGETDURATION:#{@segment_duration}
+    #EXT-X-TARGETDURATION:#{@target_duration}
     #EXT-X-MEDIA-SEQUENCE:#{sequence_start}
 
     #{segments_content}
@@ -285,15 +338,13 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   defp write_archive_playlist(live_stream_id, kbps, all_segments, storage) do
     segments_content =
       Enum.map_join(all_segments, "\n", fn %{name: name, duration: duration} ->
-        "#EXTINF:#{duration}.0,\n#{kbps}k/#{name}"
+        "#EXTINF:#{duration},\n#{kbps}k/#{name}"
       end)
 
-    # #EXT-X-ENDLIST marks this as a complete VOD recording
-    # Without it, players treat it as a live stream and keep polling
     content = """
     #EXTM3U
     #EXT-X-VERSION:3
-    #EXT-X-TARGETDURATION:#{@segment_duration}
+    #EXT-X-TARGETDURATION:#{@target_duration}
     #EXT-X-MEDIA-SEQUENCE:0
     #EXT-X-PLAYLIST-TYPE:VOD
 
@@ -308,7 +359,6 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
 
   # ---------------------------------------------------------------------------
   # Private — storage abstraction
-  # Local in dev, S3 in prod — same interface, different backends
   # ---------------------------------------------------------------------------
 
   defp write_file(path, data, %{adapter: :local}) do
@@ -326,9 +376,10 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
   defp write_file(path, data, %{adapter: :s3, bucket: bucket}) do
     data_binary = if is_binary(data), do: data, else: IO.iodata_to_binary(data)
 
-    content_type = if String.ends_with?(path, ".m3u8"),
-      do: "application/vnd.apple.mpegurl",
-      else: "audio/aac"
+    content_type =
+      if String.ends_with?(path, ".m3u8"),
+        do: "application/vnd.apple.mpegurl",
+        else: "audio/aac"
 
     request =
       ExAws.S3.put_object(bucket, path, data_binary,
@@ -389,11 +440,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Segmenter do
     Enum.into(@bitrates, %{}, fn kbps ->
       url =
         case storage.adapter do
-          :local ->
-            "/segments/#{live_stream_id}/#{kbps}k/#{segment_name}"
-
-          :s3 ->
-            "#{storage.base_url}/broadcasters/#{live_stream_id}/#{kbps}k/#{segment_name}"
+          :local -> "/segments/#{live_stream_id}/#{kbps}k/#{segment_name}"
+          :s3    -> "#{storage.base_url}/broadcasters/#{live_stream_id}/#{kbps}k/#{segment_name}"
         end
 
       {kbps, url}
