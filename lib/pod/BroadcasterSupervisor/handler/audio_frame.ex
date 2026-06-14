@@ -116,9 +116,8 @@ defmodule Pod.BroadcasterSupervisor.Handler.AudioFrame do
         Logger.debug("[AudioFrame] Skipping control message type #{msg_type}")
         handle_audio_frame(remaining, state)
 
-      {:incomplete, _} ->
-        Logger.debug("[AudioFrame] Incomplete frame, waiting for more data")
-        state
+      {:incomplete, incomplete_buffer} ->
+        %{state | buffer: incomplete_buffer}
     end
   end
 
