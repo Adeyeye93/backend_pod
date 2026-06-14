@@ -196,7 +196,8 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Season do
 
   @impl true
   def terminate(reason, state) do
-    Logger.info("[Season] Terminating — #{inspect(reason)}")
+    Logger.info("[Season] Terminating — #{inspect(reason)} | " <>
+      "frames_in (extracted by AudioFrame): #{state.frames_in}")
 
     if state.flush_timer, do: Process.cancel_timer(state.flush_timer)
 

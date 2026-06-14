@@ -32,16 +32,27 @@ defmodule Pod.BroadcasterSupervisor.Handler.AudioFrame do
   # RTMP frame parsing
   # ---------------------------------------------------------------------------
 
-  def parse_rtmp_audio_frame(buffer) do
+  # chunk_size is the negotiated RTMP chunk size (default 128).
+  # RTMP splits each message into chunks of at most chunk_size bytes.
+  # Between every pair of chunks, the sender inserts a 1-byte basic header
+  # (fmt=3, same csid). We must strip these continuation headers before
+  # handing the payload to the AAC extractor.
+  def parse_rtmp_audio_frame(buffer, chunk_size \\ 128) do
     case buffer do
       <<_fmt::2, _csid::6, _ts::24, len::24, type::8, _stream_id::32-little, rest::binary>> ->
-        if byte_size(rest) >= len do
-          <<payload::binary-size(len), remaining::binary>> = rest
+        # How many 1-byte continuation headers are interleaved in the payload?
+        # Each chunk except the first needs one. Formula: ceil(len / chunk_size) - 1
+        num_continuations = if len > 0, do: div(len - 1, chunk_size), else: 0
+        total_needed = len + num_continuations
+
+        if byte_size(rest) >= total_needed do
+          {payload, remaining} = reassemble_chunks(rest, len, chunk_size)
 
           case type do
             8  -> {:ok, payload, remaining}
+            1  -> {:set_chunk_size, payload, remaining}
             20 -> {:amf_command, payload, remaining}
-            t when t in [1, 2, 3, 4, 5, 6] -> {:control_message, t, remaining}
+            t when t in [2, 3, 4, 5, 6] -> {:control_message, t, remaining}
             _  -> {:control_message, type, remaining}
           end
         else
@@ -53,15 +64,47 @@ defmodule Pod.BroadcasterSupervisor.Handler.AudioFrame do
     end
   end
 
+  # Extracts `total_len` bytes of actual message payload from `data`, skipping
+  # the 1-byte fmt=3 continuation header that appears every `chunk_size` bytes.
+  # Returns {payload_binary, remaining_data_after_message}.
+  defp reassemble_chunks(data, total_len, chunk_size) do
+    do_reassemble(data, total_len, chunk_size, [])
+  end
+
+  defp do_reassemble(data, 0, _chunk_size, acc) do
+    {IO.iodata_to_binary(:lists.reverse(acc)), data}
+  end
+
+  defp do_reassemble(data, remaining_len, chunk_size, acc) do
+    take = min(remaining_len, chunk_size)
+    <<chunk_bytes::binary-size(take), after_chunk::binary>> = data
+    new_remaining = remaining_len - take
+
+    if new_remaining > 0 do
+      # Skip the 1-byte fmt=3 basic header before the next continuation chunk
+      <<_cont_header::8, next_data::binary>> = after_chunk
+      do_reassemble(next_data, new_remaining, chunk_size, [chunk_bytes | acc])
+    else
+      do_reassemble(after_chunk, 0, chunk_size, [chunk_bytes | acc])
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Main entry point — called from Season.handle_info(:start_reading)
   # Always returns updated state.
   # ---------------------------------------------------------------------------
 
   def handle_audio_frame(buffer, state) do
-    case parse_rtmp_audio_frame(buffer) do
+    case parse_rtmp_audio_frame(buffer, state.chunk_size) do
       {:ok, payload, remaining} ->
         handle_audio_payload(payload, remaining, state)
+
+      {:set_chunk_size, payload, remaining} ->
+        # The sender is changing the chunk size for all subsequent messages.
+        # Parse as a 31-bit big-endian integer (MSB reserved, must be 0).
+        <<_reserved::1, new_size::31>> = payload
+        Logger.info("[AudioFrame] Set Chunk Size: #{new_size}")
+        handle_audio_frame(remaining, %{state | chunk_size: new_size})
 
       {:amf_command, payload, remaining} ->
         Logger.info("[AudioFrame] AMF command received")
