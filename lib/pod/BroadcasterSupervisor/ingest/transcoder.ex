@@ -1,8 +1,21 @@
 defmodule Pod.BroadcasterSupervisor.Ingest.Transcoder do
   @moduledoc """
-  A pooled GenServer worker that receives buffered AAC frames from a broadcaster,
-  re-encodes them at three bitrates (128k, 192k, 320k) using FFmpeg, and returns
-  ADTS-wrapped segments to the caller.
+  A pooled GenServer worker that receives buffered AAC frames from a broadcaster
+  and returns ADTS-framed audio to the caller.
+
+  ## Why no per-dispatch FFmpeg re-encoding
+
+  Previously this module re-encoded each 3-frame batch at 128k/192k/320k using
+  separate FFmpeg invocations. This caused audible gaps throughout playback:
+  each FFmpeg process starts with a fresh AAC encoder, which introduces priming
+  delay at the start of every batch — a discontinuity every 64 ms.
+
+  The fix: wrap frames in ADTS format directly and return the native bitrate
+  for all quality variants. ADTS-framed AAC is self-describing (each frame
+  carries its own sync word and length) and concatenates cleanly without gaps.
+
+  Quality-based encoding is handled once at stream end by AudioPackagingWorker
+  (FFmpeg HLS → MP3), where encoder state continuity is not an issue.
 
   ## Input contract
 
@@ -11,23 +24,6 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Transcoder do
     - `aac_config` — the parsed AAC config map from the stream's sequence header:
                      `%{profile: integer, sample_rate_index: integer, channels: integer}`
     - `reply_to`   — the PID that will receive the result message
-
-  ## Why we wrap in ADTS before piping to FFmpeg
-
-  FFmpeg needs a self-describing container to understand the AAC input. Raw AAC
-  frames on their own have no framing — FFmpeg cannot determine sample rate,
-  channel count, or profile without it. ADTS headers (7 bytes each) provide
-  exactly that framing. We build them ourselves using the `aac_config` parsed
-  earlier from the RTMP sequence header, reusing the same logic from AudioFrame.
-
-  ## Why one FFmpeg process per bitrate (not one with multiple outputs)
-
-  FFmpeg *can* output multiple bitrates in one process, but only to files or
-  named pipes — not to a single stdout. Writing to temp files would require
-  cleanup logic and disk I/O on every flush. Separate processes piping to
-  stdout keep everything in memory and let us collect each result cleanly.
-  With a pool of 100 workers, three short-lived FFmpeg processes per flush
-  is acceptable — each runs for milliseconds on 2-3 frames of audio.
 
   ## Result message
 
@@ -143,92 +139,14 @@ defmodule Pod.BroadcasterSupervisor.Ingest.Transcoder do
   end
 
   # ---------------------------------------------------------------------------
-  # FFmpeg orchestration
+  # ADTS passthrough — no re-encoding
   # ---------------------------------------------------------------------------
 
   defp run_all_bitrates(frames, aac_config) do
-    # Wrap frames once — all three FFmpeg processes receive the same binary.
     adts_binary = wrap_frames_in_adts(frames, aac_config)
-
-    Logger.debug("[Transcoder] ADTS input size: #{byte_size(adts_binary)} bytes")
-
-    results =
-      Enum.map(@bitrates, fn kbps ->
-        case run_ffmpeg(adts_binary, kbps) do
-          {:ok, segment} ->
-            Logger.debug("[Transcoder] #{kbps}k → #{byte_size(segment)} bytes output")
-            {:ok, {kbps, segment}}
-
-          {:error, reason} ->
-            Logger.error("[Transcoder] #{kbps}k failed: #{inspect(reason)}")
-            {:error, {kbps, reason}}
-        end
-      end)
-
-    errors = Enum.filter(results, &match?({:error, _}, &1))
-
-    if errors == [] do
-      segments =
-        results
-        |> Enum.map(fn {:ok, {kbps, segment}} -> {kbps, segment} end)
-        |> Map.new()
-
-      # %{128 => <<...>>, 192 => <<...>>, 320 => <<...>>}
-      {:ok, segments}
-    else
-      {:error, {:ffmpeg_partial_failure, errors}}
-    end
-  end
-
-  defp run_ffmpeg(adts_binary, kbps) do
-    tmp_path =
-      System.tmp_dir!()
-      |> Path.join("pod_#{kbps}_#{:erlang.unique_integer([:positive])}.aac")
-
-    out_path =
-      System.tmp_dir!()
-      |> Path.join("pod_#{kbps}_#{:erlang.unique_integer([:positive])}_out.aac")
-
-    try do
-      File.write!(tmp_path, adts_binary)
-
-      # Write to an output file instead of pipe:1 — avoids System.cmd stdout
-      # mixing with stderr when stderr_to_stdout: true is needed to prevent
-      # the stderr pipe buffer from filling and blocking FFmpeg.
-      args = ffmpeg_args(kbps, tmp_path, out_path)
-
-      case System.cmd(ffmpeg_bin(), args, stderr_to_stdout: true) do
-        {_stderr, 0} ->
-          case File.read(out_path) do
-            {:ok, data} -> {:ok, data}
-            {:error, reason} -> {:error, {:output_read_failed, reason}}
-          end
-
-        {stderr_output, status} ->
-          Logger.error("[Transcoder] FFmpeg #{kbps}k failed (#{status}): #{stderr_output}")
-          {:error, {:ffmpeg_exit, status}}
-      end
-    after
-      File.rm(tmp_path)
-      File.rm(out_path)
-    end
-  end
-
-  defp ffmpeg_args(kbps, input_path, output_path) do
-    [
-      "-hide_banner",
-      "-loglevel", "error",
-      "-f", "aac",
-      "-i", input_path,
-      "-c:a", "aac",
-      "-b:a", "#{kbps}k",
-      "-f", "adts",
-      output_path    # write to file, not pipe:1
-    ]
-  end
-
-  defp ffmpeg_bin do
-    System.find_executable("ffmpeg") ||
-      raise "[Transcoder] ffmpeg not found in PATH — ensure it is installed on this node"
+    Logger.debug("[Transcoder] ADTS passthrough — #{byte_size(adts_binary)} bytes, #{length(frames)} frames")
+    # Return the same native-bitrate ADTS binary for all quality slots.
+    # Quality re-encoding happens once in AudioPackagingWorker (HLS → MP3).
+    {:ok, %{128 => adts_binary, 192 => adts_binary, 320 => adts_binary}}
   end
 end
